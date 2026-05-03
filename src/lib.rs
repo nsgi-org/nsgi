@@ -102,3 +102,16 @@ pub struct NsgiResponse {
 /// - **No Panics**: Unwinding into the host is Undefined Behavior.
 ///   Catch panics internally or use `panic = "abort"`.
 pub type NsgiApp = unsafe extern "C" fn(*const NsgiRequest) -> NsgiResponse;
+
+/// The canonical type signature of the NSGI response cleanup function.
+///
+/// Every NSGI application must provide a C ABI function with this signature:
+///
+/// ```rust,ignore
+/// #[no_mangle]
+/// pub unsafe extern "C" fn nsgi_free_response(res: NsgiResponse) { ... }
+/// ```
+///
+/// The host **must** call this exactly once after consuming each `NsgiResponse`,
+/// so the application can release whatever it allocated.
+pub type NsgiFreeResponse = unsafe extern "C" fn(NsgiResponse);
