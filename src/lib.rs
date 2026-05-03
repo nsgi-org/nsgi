@@ -37,3 +37,29 @@ pub struct NsgiHeader {
     pub value: *const u8,
     pub value_len: usize,
 }
+
+/// An HTTP request constructed by the host and passed to the application.
+///
+/// # Ownership
+/// Every pointer field is borrowed from the host for the duration of the
+/// `nsgi_handle` call. The application must not free any of them.
+#[repr(C)]
+pub struct NsgiRequest {
+    /// HTTP method bytes (e.g. `b"GET"`).
+    pub method: *const u8,
+    pub method_len: usize,
+    /// Path component bytes (e.g. `b"/api/v1"`).
+    pub path: *const u8,
+    pub path_len: usize,
+    /// Query component bytes. The `?` delimiter is excluded. Null when absent.
+    pub query: *const u8,
+    pub query_len: usize,
+    /// Request headers borrowed from the host. Null when `headers_len` is 0.
+    pub headers: *const NsgiHeader,
+    pub headers_len: usize,
+    /// Request body bytes. Null when `body_len` is 0.
+    pub body: *const u8,
+    pub body_len: usize,
+    /// Opaque host context pointer. The application must not dereference or free this.
+    pub host_ctx: *mut c_void,
+}
