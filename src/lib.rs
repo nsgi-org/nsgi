@@ -51,7 +51,7 @@ pub struct NsgiRequest {
     /// Path component bytes (e.g. `b"/api/v1"`).
     pub path: *const u8,
     pub path_len: usize,
-    /// Query component bytes. The `?` delimiter is excluded. Null when absent.
+    /// Query component bytes. The `?` delimiter is excluded. Null when `query_len` is 0.
     pub query: *const u8,
     pub query_len: usize,
     /// Request headers borrowed from the host. Null when `headers_len` is 0.
