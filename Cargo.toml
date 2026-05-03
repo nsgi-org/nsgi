@@ -2,5 +2,7 @@
 name = "nsgi"
 version = "0.1.0"
 edition = "2024"
+description = "Native Web Server Gateway Interface — C ABI protocol types for any FFI capable language"
+license = "MIT"
 
 [dependencies]
