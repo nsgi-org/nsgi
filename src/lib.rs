@@ -63,3 +63,23 @@ pub struct NsgiRequest {
     /// Opaque host context pointer. The application must not dereference or free this.
     pub host_ctx: *mut c_void,
 }
+
+/// An HTTP response produced by the application and returned to the host.
+///
+/// # Ownership
+/// The application constructs this value and owns all memory reachable through it.
+/// The host treats the entire struct as **read-only** — it must not modify or
+/// free any field directly. Once the host has finished reading the response, it
+/// **must** call `nsgi_free_response` (provided by the application) exactly once
+/// so the application can release whatever it allocated.
+#[repr(C)]
+pub struct NsgiResponse {
+    /// HTTP status code (e.g. `200`, `404`).
+    pub status: u16,
+    /// Response headers constructed by the application. Null when `headers_len` is 0.
+    pub headers: *const NsgiHeader,
+    pub headers_len: usize,
+    /// Response body bytes. Null when `body_len` is 0.
+    pub body: *const u8,
+    pub body_len: usize,
+}
