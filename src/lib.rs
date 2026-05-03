@@ -83,3 +83,22 @@ pub struct NsgiResponse {
     pub body: *const u8,
     pub body_len: usize,
 }
+
+/// The canonical type signature of an NSGI application entry point.
+///
+/// Every NSGI application must provide a C ABI function with this signature:
+///
+/// ```rust,ignore
+/// #[no_mangle]
+/// pub unsafe extern "C" fn nsgi_handle(req: *const NsgiRequest) -> NsgiResponse { ... }
+/// ```
+///
+/// # Execution Constraints
+///
+/// - **Synchronous**: The function must be strictly synchronous.
+/// - **Lifetimes**: The application must not hold references to `req` or any of its fields after returning.
+/// - **Thread Safety**: The host may invoke this entry point concurrently from multiple OS threads.
+///   The implementation must be reentrant and must not rely on unsynchronized mutable state.
+/// - **No Panics**: Unwinding into the host is Undefined Behavior.
+///   Catch panics internally or use `panic = "abort"`.
+pub type NsgiApp = unsafe extern "C" fn(*const NsgiRequest) -> NsgiResponse;
