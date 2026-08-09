@@ -1,4 +1,4 @@
-//! # NSGI — Native Web Server Gateway Interface
+//! # NSGI: Native Web Server Gateway Interface
 //!
 //! This crate provides the C ABI types and function pointer signature that form the NSGI protocol.
 //! It is `#![no_std]` and has zero dependencies.
@@ -19,12 +19,12 @@ use core::ffi::c_void;
 
 /// A single HTTP header name/value pair, stored as raw byte slices.
 ///
-/// # Ownership — when carried by `NsgiRequest`
+/// # Ownership: when carried by `NsgiRequest`
 /// Borrowed from the host. The application must **not** free these fields.
 ///
-/// # Ownership — when carried by `NsgiResponse`
+/// # Ownership: when carried by `NsgiResponse`
 /// Managed entirely by the application. The application may use heap allocation **or**
-/// static memory (e.g. `b"Content-Type"`) for `name` and `value` — the host
+/// static memory (e.g. `b"Content-Type"`) for `name` and `value`; the host
 /// never interprets or frees these bytes. The host simply passes the enclosing
 /// `NsgiResponse` back to `nsgi_free_response`, letting the application clean up
 /// according to its own allocation strategy.
@@ -68,7 +68,7 @@ pub struct NsgiRequest {
 ///
 /// # Ownership
 /// The application constructs this value and owns all memory reachable through it.
-/// The host treats the entire struct as **read-only** — it must not modify or
+/// The host treats the entire struct as **read-only**; it must not modify or
 /// free any field directly. Once the host has finished reading the response, it
 /// **must** call `nsgi_free_response` (provided by the application) exactly once
 /// so the application can release whatever it allocated.
