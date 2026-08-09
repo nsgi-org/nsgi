@@ -1,4 +1,4 @@
-# NSGI — Native Web Server Gateway Interface
+# NSGI: Native Web Server Gateway Interface
 
 A language-agnostic gateway interface protocol over C ABI. This crate provides the `#![no_std]`, zero-dependency Rust definitions of the NSGI protocol types and function signatures.
 
