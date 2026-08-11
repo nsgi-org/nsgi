@@ -60,18 +60,24 @@ pub struct NsgiAddr {
 
 /// A single HTTP header name/value pair, stored as raw byte slices.
 ///
+/// # Header names
+/// Names are lowercase in both directions: the host folds the names it delivers, and the
+/// application supplies folded names. Folding maps bytes `0x41..=0x5A` to `0x61..=0x7A`
+/// and leaves every other byte alone; values are unaffected. A host folds any uppercase
+/// name it receives before transmitting.
+///
 /// # Ownership: when carried by `NsgiRequest`
 /// Borrowed from the host. The application must **not** free these fields.
 ///
 /// # Ownership: when carried by `NsgiResponse`
 /// Managed entirely by the application. The application may use heap allocation **or**
-/// static memory (e.g. `b"Content-Type"`) for `name` and `value`; the host
+/// static memory (e.g. `b"content-type"`) for `name` and `value`; the host
 /// never interprets or frees these bytes. The host simply passes the enclosing
 /// `NsgiResponse` back to `nsgi_free_response`, letting the application clean up
 /// according to its own allocation strategy.
 #[repr(C)]
 pub struct NsgiHeader {
-    /// Header name bytes (e.g. `b"Content-Type"`).
+    /// Header name bytes (e.g. `b"content-type"`).
     pub name: *const u8,
     pub name_len: usize,
     /// Header value bytes (e.g. `b"text/plain"`).
