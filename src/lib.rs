@@ -12,6 +12,18 @@
 //! a raw byte pointer (`*const u8`) and a length (`usize`). They are **NOT** null-terminated.
 //! Both the host and the application **must** rely entirely on the companion `_len` field to
 //! determine the extent of the data; never pass these pointers to functions that expect C strings.
+//!
+//! ## Field Validity
+//!
+//! Every text field is free of the bytes that delimit an HTTP/1.1 message: no NUL, LF or CR at
+//! any position, and no leading or trailing SP or HTAB. A host rejects a request carrying them,
+//! with 400 unless a more suitable status applies. An application does not return them either,
+//! and a host answers 500 rather than transmitting them. Bodies carry data rather than text and
+//! are not covered.
+//!
+//! The rule covers bytes as received. Percent-encoding is legal throughout a request target, so
+//! `/a%0Db` is valid here and decodes to a path holding CR; a host does not decode, and it is
+//! the response side that keeps a decoded delimiter off the wire.
 
 #![no_std]
 
@@ -65,6 +77,8 @@ pub struct NsgiAddr {
 /// application supplies folded names. Folding maps bytes `0x41..=0x5A` to `0x61..=0x7A`
 /// and leaves every other byte alone; values are unaffected. A host folds any uppercase
 /// name it receives before transmitting.
+///
+/// Beyond case, a name carries no byte in `0x00..=0x20` or `0x7F..=0xFF`, and no colon.
 ///
 /// # Ownership: when carried by `NsgiRequest`
 /// Borrowed from the host. The application must **not** free these fields.
