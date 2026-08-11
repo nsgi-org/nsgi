@@ -17,6 +17,47 @@
 
 use core::ffi::c_void;
 
+/// URL scheme values for `NsgiRequest::scheme`.
+pub const NSGI_SCHEME_UNKNOWN: u8 = 0;
+pub const NSGI_SCHEME_HTTP: u8 = 1;
+pub const NSGI_SCHEME_HTTPS: u8 = 2;
+/// A scheme the host terminated but cannot represent here. A host reporting this
+/// **must** supply `NsgiRequest::get_var` and answer `request.scheme`.
+pub const NSGI_SCHEME_OTHER: u8 = 3;
+
+/// Address family values for `NsgiAddr::family`.
+///
+/// These are NSGI values, **not** the platform's `AF_*` constants, which differ across
+/// operating systems. `UNSPEC` means a connection exists whose address is not
+/// representable here, which is distinct from a null `NsgiAddr` pointer.
+pub const NSGI_AF_UNSPEC: u8 = 0;
+pub const NSGI_AF_INET: u8 = 1;
+pub const NSGI_AF_INET6: u8 = 2;
+pub const NSGI_AF_UNIX: u8 = 3;
+
+/// A transport address in binary form.
+///
+/// # Ownership
+/// Borrowed from the host. The application must **not** free these fields.
+#[repr(C)]
+pub struct NsgiAddr {
+    /// One of the `NSGI_AF_*` constants.
+    pub family: u8,
+    /// Port in **host** byte order; 0 when not applicable. Note that
+    /// `sockaddr_in::sin_port` is network byte order.
+    pub port: u16,
+    /// IPv6 interface index, as carried by `sockaddr_in6::sin6_scope_id`.
+    /// 0 when unknown or not applicable.
+    pub scope_id: u32,
+    /// Address bytes in network byte order, IPv4 in the first 4; unused bytes are zero.
+    /// The host **must** unmap IPv4-mapped IPv6 addresses (`::ffff:0:0/96`) to `NSGI_AF_INET`.
+    pub octets: [u8; 16],
+    /// UNIX socket path bytes. Null unless `family` is `NSGI_AF_UNIX`;
+    /// an unnamed socket has a `path_len` of 0.
+    pub path: *const u8,
+    pub path_len: usize,
+}
+
 /// A single HTTP header name/value pair, stored as raw byte slices.
 ///
 /// # Ownership: when carried by `NsgiRequest`
@@ -38,6 +79,31 @@ pub struct NsgiHeader {
     pub value_len: usize,
 }
 
+/// `NsgiGetVar` found the variable. A zero `*out_value_len` means a known but empty value.
+pub const NSGI_VAR_OK: i32 = 0;
+/// The host does not recognize the variable, as distinct from a known but empty value.
+pub const NSGI_VAR_UNKNOWN: i32 = 1;
+/// The lookup failed. Negative values are reserved for errors.
+pub const NSGI_VAR_ERROR: i32 = -1;
+
+/// The canonical type signature of the host's variable lookup callback.
+///
+/// Carries connection and server metadata such as `tls.version`, `tls.cipher`,
+/// `server.software`, `proxy_protocol.src_addr`. Names are lowercase ASCII,
+/// dot-separated, and compared bytewise. Request headers are **not** available here;
+/// they are already in `NsgiRequest::headers`.
+///
+/// `host_ctx` is `NsgiRequest::host_ctx` passed back unchanged. On `NSGI_VAR_OK` the host
+/// writes a pointer and length borrowed for the duration of the `nsgi_handle` call; on any
+/// other return the out-params are left untouched.
+pub type NsgiGetVar = unsafe extern "C" fn(
+    host_ctx: *mut c_void,
+    name: *const u8,
+    name_len: usize,
+    out_value: *mut *const u8,
+    out_value_len: *mut usize,
+) -> i32;
+
 /// An HTTP request constructed by the host and passed to the application.
 ///
 /// # Ownership
@@ -45,6 +111,19 @@ pub struct NsgiHeader {
 /// `nsgi_handle` call. The application must not free any of them.
 #[repr(C)]
 pub struct NsgiRequest {
+    /// One of the `NSGI_SCHEME_*` constants. Describes the hop the host itself terminated;
+    /// never derived from `X-Forwarded-Proto`.
+    pub scheme: u8,
+    /// HTTP major version. Both version fields are 0 when the version is unknown, and the
+    /// canonical textual forms are `HTTP/0.9`, `HTTP/1.0`, `HTTP/1.1`, `HTTP/2` and `HTTP/3`.
+    pub http_version_major: u8,
+    /// HTTP minor version, 0 for major versions from 2 onward, which have no minor version.
+    pub http_version_minor: u8,
+    /// The transport peer that opened the connection. Null when the host has no peer.
+    /// Never derived from `X-Forwarded-For` or `Forwarded`.
+    pub peer: *const NsgiAddr,
+    /// The local address the connection was accepted on. Null when the host has none.
+    pub local: *const NsgiAddr,
     /// HTTP method bytes (e.g. `b"GET"`).
     pub method: *const u8,
     pub method_len: usize,
@@ -62,6 +141,9 @@ pub struct NsgiRequest {
     pub body_len: usize,
     /// Opaque host context pointer. The application must not dereference or free this.
     pub host_ctx: *mut c_void,
+    /// Host variable lookup, receiving `host_ctx` unchanged. `None` when the host supplies
+    /// no variables.
+    pub get_var: Option<NsgiGetVar>,
 }
 
 /// An HTTP response produced by the application and returned to the host.

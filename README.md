@@ -6,11 +6,13 @@ A language-agnostic gateway interface protocol over C ABI. This crate provides t
 
 | Type | Role |
 | ---- | ---- |
+| `NsgiAddr` | A transport address in binary form |
 | `NsgiHeader` | A single HTTP header name/value pair |
 | `NsgiRequest` | HTTP request passed from host to application |
 | `NsgiResponse` | HTTP response returned from application to host |
 | `NsgiApp` | Type alias for the `nsgi_handle` entry point signature |
 | `NsgiFreeResponse` | Type alias for the `nsgi_free_response` cleanup signature |
+| `NsgiGetVar` | Type alias for the host variable lookup carried on `NsgiRequest` |
 
 ## License
 
