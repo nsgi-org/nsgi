@@ -133,13 +133,20 @@ pub struct NsgiRequest {
     /// HTTP method bytes (e.g. `b"GET"`).
     pub method: *const u8,
     pub method_len: usize,
+    /// Authority component bytes, as received and including any port. Taken from the request
+    /// target when it is in absolute form, otherwise from `:authority` or `Host`. Never
+    /// carries the deprecated userinfo subcomponent; a host rejects such a request.
+    /// Null when the request conveys no authority.
+    pub authority: *const u8,
+    pub authority_len: usize,
     /// Path component bytes (e.g. `b"/api/v1"`).
     pub path: *const u8,
     pub path_len: usize,
     /// Query component bytes. The `?` delimiter is excluded. Null when `query_len` is 0.
     pub query: *const u8,
     pub query_len: usize,
-    /// Request headers borrowed from the host. Null when `headers_len` is 0.
+    /// Request headers borrowed from the host, carrying neither `host` nor any pseudo-header.
+    /// The authority is reported through `authority` instead. Null when `headers_len` is 0.
     pub headers: *const NsgiHeader,
     pub headers_len: usize,
     /// Request body bytes. Null when `body_len` is 0.
