@@ -14,6 +14,7 @@ A language-agnostic gateway interface protocol over C ABI. This crate provides t
 | `NsgiFreeResponse` | Type alias for the `nsgi_free_response` cleanup signature |
 | `NsgiGetVar` | Type alias for the host variable lookup carried on `NsgiRequest` |
 | `NsgiReadRequestBody` | Type alias for the host request body read callback carried on `NsgiRequest` |
+| `NsgiReadResponseBody` | Type alias for the application response body read callback carried on `NsgiResponse` |
 
 ## License
 
