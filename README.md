@@ -13,6 +13,7 @@ A language-agnostic gateway interface protocol over C ABI. This crate provides t
 | `NsgiApp` | Type alias for the `nsgi_handle` entry point signature |
 | `NsgiFreeResponse` | Type alias for the `nsgi_free_response` cleanup signature |
 | `NsgiGetVar` | Type alias for the host variable lookup carried on `NsgiRequest` |
+| `NsgiReadBody` | Type alias for the host body read callback carried on `NsgiRequest` |
 
 ## License
 
