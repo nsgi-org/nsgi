@@ -345,7 +345,8 @@ pub struct NsgiResponse {
 /// # Execution Constraints
 ///
 /// - **Synchronous**: The function must be strictly synchronous.
-/// - **Lifetimes**: The application must not hold references to `req` or any of its fields after returning.
+/// - **Lifetimes**: `req` is never null and addresses storage the host owns; the application must
+///   not free it, and must not hold references to it or any of its fields after returning.
 /// - **Thread Safety**: The host may invoke this entry point concurrently from multiple OS threads.
 ///   The implementation must be reentrant and must not rely on unsynchronized mutable state.
 /// - **No Panics**: Unwinding into the host is Undefined Behavior.
