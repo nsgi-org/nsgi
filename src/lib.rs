@@ -86,7 +86,7 @@ pub struct NsgiAddr {
 /// # Ownership: when carried by `NsgiResponse`
 /// Managed entirely by the application. The application may use heap allocation **or**
 /// static memory (e.g. `b"content-type"`) for `name` and `value`; the host
-/// never interprets or frees these bytes. The host simply passes the enclosing
+/// never interprets or frees these bytes. The host simply hands the enclosing
 /// `NsgiResponse` back to `nsgi_free_response`, letting the application clean up
 /// according to its own allocation strategy.
 #[repr(C)]
@@ -310,8 +310,8 @@ pub type NsgiReadResponseBody = unsafe extern "C" fn(
 /// The host treats the entire struct as **read-only**; it must not modify or
 /// free any field directly. Body chunks are borrowed on the window described on
 /// `NsgiReadResponseBody`. Once the host has finished with the response, it
-/// **must** call `nsgi_free_response` (provided by the application) exactly once
-/// so the application can release whatever it allocated.
+/// **must** call `nsgi_free_response` (provided by the application) exactly once,
+/// passing a pointer to it, so the application can release whatever it allocated.
 #[repr(C)]
 pub struct NsgiResponse {
     /// HTTP status code (e.g. `200`, `404`).
@@ -358,11 +358,15 @@ pub type NsgiApp = unsafe extern "C" fn(*const NsgiRequest) -> NsgiResponse;
 ///
 /// ```rust,ignore
 /// #[no_mangle]
-/// pub unsafe extern "C" fn nsgi_free_response(res: NsgiResponse) { ... }
+/// pub unsafe extern "C" fn nsgi_free_response(res: *const NsgiResponse) { ... }
 /// ```
 ///
 /// The host **must** call this exactly once for every `NsgiResponse` that `nsgi_handle`
 /// returned, so the application can release whatever it allocated. The call comes after the
 /// last `NsgiResponse::read_body` call and never concurrently with one, whether or not the
 /// body reached completion.
-pub type NsgiFreeResponse = unsafe extern "C" fn(NsgiResponse);
+///
+/// The pointer is never null and addresses storage the host owns, borrowed for the duration of
+/// the call: the application releases what the fields point to, not the storage the pointer
+/// addresses, and does not retain the pointer past the return.
+pub type NsgiFreeResponse = unsafe extern "C" fn(*const NsgiResponse);
