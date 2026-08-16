@@ -129,32 +129,32 @@ pub type NsgiGetVar = unsafe extern "C" fn(
     out_value_len: *mut usize,
 ) -> i32;
 
-/// Status values returned by `NsgiReadBody`. Zero and positive values report outcomes that
-/// are not failures; negative values report errors, and negative values outside the ones
+/// Status values returned by `NsgiReadRequestBody`. Zero and positive values report outcomes
+/// that are not failures; negative values report errors, and negative values outside the ones
 /// enumerated here are reserved.
 ///
 /// A chunk is available: the host wrote a non-null pointer and a length of at least 1.
 /// A zero-length chunk is not a legal success.
-pub const NSGI_BODY_OK: i32 = 0;
+pub const NSGI_REQUEST_BODY_OK: i32 = 0;
 /// The body is complete; no further bytes will arrive.
-pub const NSGI_BODY_END: i32 = 1;
+pub const NSGI_REQUEST_BODY_END: i32 = 1;
 /// No bytes are available at this moment, and more may follow; the application calls
 /// `read_body` again. A synchronous host blocks instead of returning this.
-pub const NSGI_BODY_AGAIN: i32 = 2;
+pub const NSGI_REQUEST_BODY_AGAIN: i32 = 2;
 /// The connection ended before the body was complete.
-pub const NSGI_BODY_ERROR_TERMINATED: i32 = -1;
+pub const NSGI_REQUEST_BODY_ERROR_TERMINATED: i32 = -1;
 /// The body framing was invalid, such as a malformed chunked encoding.
-pub const NSGI_BODY_ERROR_PROTOCOL: i32 = -2;
+pub const NSGI_REQUEST_BODY_ERROR_PROTOCOL: i32 = -2;
 /// The body reached a limit the host enforces; the application answers 413.
-pub const NSGI_BODY_ERROR_TOO_LARGE: i32 = -3;
+pub const NSGI_REQUEST_BODY_ERROR_TOO_LARGE: i32 = -3;
 /// The host's read timeout fired before the next chunk arrived.
-pub const NSGI_BODY_ERROR_TIMEOUT: i32 = -4;
+pub const NSGI_REQUEST_BODY_ERROR_TIMEOUT: i32 = -4;
 
-/// The canonical type signature of the host's body read callback.
+/// The canonical type signature of the host's request body read callback.
 ///
 /// Delivers the request body as chunks borrowed from host memory, one per call, in the order
 /// the bytes arrived. `host_ctx` is `NsgiRequest::host_ctx` passed back unchanged. On
-/// `NSGI_BODY_OK` the host writes the chunk pointer and length; on any other status the
+/// `NSGI_REQUEST_BODY_OK` the host writes the chunk pointer and length; on any other status the
 /// out-params are left untouched.
 ///
 /// # Chunk lifetime
@@ -165,9 +165,9 @@ pub const NSGI_BODY_ERROR_TIMEOUT: i32 = -4;
 /// bytes, which is why it takes no length.
 ///
 /// # Terminal statuses
-/// `NSGI_BODY_END` and every error are sticky: once reported, every later call reports that
-/// same status. A request carrying no body reports `NSGI_BODY_END` on the first call, with
-/// no zero-length chunk before it.
+/// `NSGI_REQUEST_BODY_END` and every error are sticky: once reported, every later call reports
+/// that same status. A request carrying no body reports `NSGI_REQUEST_BODY_END` on the first
+/// call, with no zero-length chunk before it.
 ///
 /// # Ordering
 /// Calls for one request are never concurrent with each other, whichever thread makes them,
@@ -179,7 +179,7 @@ pub const NSGI_BODY_ERROR_TIMEOUT: i32 = -4;
 /// application responding without reading sends a final status in its place. An application
 /// may respond with the body unread; the host then drains the remainder or closes the
 /// connection rather than parsing those bytes as a subsequent message.
-pub type NsgiReadBody = unsafe extern "C" fn(
+pub type NsgiReadRequestBody = unsafe extern "C" fn(
     host_ctx: *mut c_void,
     out_chunk: *mut *const u8,
     out_chunk_len: *mut usize,
@@ -190,7 +190,7 @@ pub type NsgiReadBody = unsafe extern "C" fn(
 /// # Ownership
 /// Every pointer field is borrowed from the host for the duration of the
 /// `nsgi_handle` call. The application must not free any of them. Body chunks are borrowed
-/// on the narrower window described on `NsgiReadBody`.
+/// on the narrower window described on `NsgiReadRequestBody`.
 #[repr(C)]
 pub struct NsgiRequest {
     /// One of the `NSGI_SCHEME_*` constants. Describes the hop the host itself terminated;
@@ -229,7 +229,7 @@ pub struct NsgiRequest {
     pub headers_len: usize,
     /// The body length the request declared in advance, or `NSGI_CONTENT_LENGTH_UNKNOWN` when
     /// it declared none. A client may declare a length and stop sending short of it, so the
-    /// end of the body is `NSGI_BODY_END` rather than a count of bytes read. A host that
+    /// end of the body is `NSGI_REQUEST_BODY_END` rather than a count of bytes read. A host that
     /// accepts a request declaring both a length and a transfer coding honors the coding alone
     /// and reports the length unknown, then closes the connection after responding.
     pub content_length: u64,
@@ -240,15 +240,76 @@ pub struct NsgiRequest {
     pub get_var: Option<NsgiGetVar>,
     /// Request body delivery, receiving `host_ctx` unchanged. The host supplies it for every
     /// request, including one that carries no body.
-    pub read_body: NsgiReadBody,
+    pub read_body: NsgiReadRequestBody,
 }
+
+/// Status values returned by `NsgiReadResponseBody`. Zero and positive values report outcomes
+/// that are not failures; negative values report errors, and negative values outside the one
+/// enumerated here are reserved.
+///
+/// A chunk is available: the application wrote a non-null pointer and a length of at least 1.
+/// A zero-length chunk is not a legal success.
+pub const NSGI_RESPONSE_BODY_OK: i32 = 0;
+/// The body is complete; no further bytes will follow.
+pub const NSGI_RESPONSE_BODY_END: i32 = 1;
+/// No bytes are available at this moment, and more may follow; the host calls `read_body`
+/// again. A synchronous application blocks instead of returning this.
+pub const NSGI_RESPONSE_BODY_AGAIN: i32 = 2;
+/// The application failed and the body will not complete. The status line is already committed,
+/// so the host leaves the message incomplete rather than completing it: it sends no terminating
+/// chunk, does not pad to a declared length, and closes the connection or resets the stream.
+pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
+
+/// The canonical type signature of the application's response body read callback.
+///
+/// Delivers the response body as chunks borrowed from application memory, one per call, in the
+/// order they are transmitted. `app_ctx` is `NsgiResponse::app_ctx` passed back unchanged. On
+/// `NSGI_RESPONSE_BODY_OK` the application writes the chunk pointer and length; on any other
+/// status the out-params are left untouched.
+///
+/// # Chunk lifetime
+/// A chunk stays valid until the next call for the same response, and never beyond
+/// `nsgi_free_response`, so an application may serve every chunk out of one buffer. A host that
+/// transmitted part of a chunk keeps the remainder by not calling again; one coalescing several
+/// chunks into a single write copies them.
+///
+/// The callback runs after `nsgi_handle` has returned, so a chunk must not point into the
+/// request, into a value obtained from `get_var`, or into a chunk obtained from
+/// `NsgiRequest::read_body`.
+///
+/// # Terminal statuses
+/// `NSGI_RESPONSE_BODY_END` and `NSGI_RESPONSE_BODY_ERROR` are sticky: once reported, every
+/// later call reports that same status. A response carrying no body reports
+/// `NSGI_RESPONSE_BODY_END` on the first call, with no zero-length chunk before it.
+///
+/// # Ordering
+/// Calls for one response are never concurrent with each other, whichever thread makes them,
+/// and may come from a thread other than the one that ran `nsgi_handle`. The host orders them
+/// so that state the application wrote during one call is visible in the next.
+///
+/// # Host obligations
+/// A host unable to accept more bytes at this moment stops calling until it can, which is the
+/// whole of backpressure. It may transmit the status line and header section as soon as
+/// `nsgi_handle` returns, so an application answering a failure with a status code finds that
+/// failure before returning.
+///
+/// The host may stop calling at any point and go straight to `nsgi_free_response`, which is
+/// what a client disconnecting, a host timeout, or a connection error looks like from the
+/// application's side; abandonment carries no status. A callback that neither yields nor
+/// completes is bounded by the host's idle timeout.
+pub type NsgiReadResponseBody = unsafe extern "C" fn(
+    app_ctx: *mut c_void,
+    out_chunk: *mut *const u8,
+    out_chunk_len: *mut usize,
+) -> i32;
 
 /// An HTTP response produced by the application and returned to the host.
 ///
 /// # Ownership
 /// The application constructs this value and owns all memory reachable through it.
 /// The host treats the entire struct as **read-only**; it must not modify or
-/// free any field directly. Once the host has finished reading the response, it
+/// free any field directly. Body chunks are borrowed on the window described on
+/// `NsgiReadResponseBody`. Once the host has finished with the response, it
 /// **must** call `nsgi_free_response` (provided by the application) exactly once
 /// so the application can release whatever it allocated.
 #[repr(C)]
@@ -256,11 +317,20 @@ pub struct NsgiResponse {
     /// HTTP status code (e.g. `200`, `404`).
     pub status: u16,
     /// Response headers constructed by the application. Null when `headers_len` is 0.
+    ///
+    /// They carry `content-length` when the application knows the body's length, and never
+    /// `transfer-encoding`: a transfer coding frames the connection the host terminated, and
+    /// chunk boundaries are not message framing. A host transmits a declared length as given
+    /// and holds the application to it, treating a body that ends short of or runs past it as
+    /// `NSGI_RESPONSE_BODY_ERROR`. Absent a declared length the host frames the response with
+    /// whatever its protocol version provides.
     pub headers: *const NsgiHeader,
     pub headers_len: usize,
-    /// Response body bytes. Null when `body_len` is 0.
-    pub body: *const u8,
-    pub body_len: usize,
+    /// Opaque application context pointer. The host must not dereference or free this.
+    pub app_ctx: *mut c_void,
+    /// Response body delivery, receiving `app_ctx` unchanged. The application supplies it for
+    /// every response, including one that carries no body.
+    pub read_body: NsgiReadResponseBody,
 }
 
 /// The canonical type signature of an NSGI application entry point.
@@ -291,6 +361,8 @@ pub type NsgiApp = unsafe extern "C" fn(*const NsgiRequest) -> NsgiResponse;
 /// pub unsafe extern "C" fn nsgi_free_response(res: NsgiResponse) { ... }
 /// ```
 ///
-/// The host **must** call this exactly once after consuming each `NsgiResponse`,
-/// so the application can release whatever it allocated.
+/// The host **must** call this exactly once for every `NsgiResponse` that `nsgi_handle`
+/// returned, so the application can release whatever it allocated. The call comes after the
+/// last `NsgiResponse::read_body` call and never concurrently with one, whether or not the
+/// body reached completion.
 pub type NsgiFreeResponse = unsafe extern "C" fn(NsgiResponse);
