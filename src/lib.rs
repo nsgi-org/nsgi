@@ -183,6 +183,28 @@ pub type NsgiReadRequestBody = unsafe extern "C" fn(
     out_chunk_len: *mut usize,
 ) -> i32;
 
+/// The trailer section is available.
+pub const NSGI_REQUEST_TRAILERS_OK: i32 = 0;
+/// [`NsgiRequest::read_body`] has not reported [`NSGI_REQUEST_BODY_END`].
+pub const NSGI_REQUEST_TRAILERS_ERROR_INCOMPLETE: i32 = -1;
+
+/// The canonical type signature of the host's request trailers read callback.
+///
+/// Delivers the request trailer section borrowed from host memory. `host_ctx` is
+/// [`NsgiRequest::host_ctx`] passed back unchanged. On [`NSGI_REQUEST_TRAILERS_OK`] the host writes
+/// the array pointer, null when the length is 0, and length, borrowed for the duration of the
+/// `nsgi_handle` call, or, for a call made after that return, until the next `read_trailers` call
+/// for the same request; on any other status the out-parameters are left untouched.
+///
+/// Returns one of the `NSGI_REQUEST_TRAILERS_*` statuses. A host that received a trailer section
+/// breaking the [field validity rule](crate#field-validity) reports
+/// [`NSGI_REQUEST_BODY_ERROR_PROTOCOL`] from [`NsgiRequest::read_body`].
+pub type NsgiReadRequestTrailers = unsafe extern "C" fn(
+    host_ctx: *mut c_void,
+    out_trailers: *mut *const NsgiHeader,
+    out_trailers_len: *mut usize,
+) -> i32;
+
 /// The canonical type signature of the host's response completion callback.
 ///
 /// Carries the response for a request whose `nsgi_handle` call returned [`NSGI_HANDLE_PENDING`].
@@ -267,6 +289,9 @@ pub struct NsgiRequest {
     /// Request body delivery, receiving `host_ctx` unchanged. The host supplies it for every
     /// request, including one that carries no body.
     pub read_body: NsgiReadRequestBody,
+    /// Request trailers delivery, receiving `host_ctx` unchanged. The host supplies it for every
+    /// request, including one that carries no trailer section.
+    pub read_trailers: NsgiReadRequestTrailers,
     /// Response completion, receiving `host_ctx` unchanged. The host supplies it for every
     /// request.
     pub respond: NsgiRespond,
@@ -318,6 +343,35 @@ pub type NsgiReadResponseBody = unsafe extern "C" fn(
     out_chunk_len: *mut usize,
 ) -> i32;
 
+/// The trailer section is available.
+pub const NSGI_RESPONSE_TRAILERS_OK: i32 = 0;
+/// The application failed and the trailer section will not complete. The host leaves the message
+/// incomplete as for [`NSGI_RESPONSE_BODY_ERROR`].
+pub const NSGI_RESPONSE_TRAILERS_ERROR: i32 = -1;
+
+/// The canonical type signature of the application's response trailers read callback.
+///
+/// Delivers the response trailer section borrowed from application memory. `app_ctx` is
+/// [`NsgiResponse::app_ctx`] passed back unchanged. On [`NSGI_RESPONSE_TRAILERS_OK`] the
+/// application writes the array pointer, null when the length is 0, and length; on any other status
+/// the out-parameters are left untouched.
+///
+/// Returns one of the `NSGI_RESPONSE_TRAILERS_*` statuses. A host treats a trailer section breaking
+/// the [field validity rule](crate#field-validity) as [`NSGI_RESPONSE_TRAILERS_ERROR`].
+///
+/// # Ordering
+/// The call comes after the [`NsgiResponse::read_body`] call reporting [`NSGI_RESPONSE_BODY_END`]
+/// has returned, and the host orders it so that state the application wrote during that call is
+/// visible within it.
+///
+/// # Host obligations
+/// The host calls it at most once, and only when the message framing can carry a trailer section.
+pub type NsgiReadResponseTrailers = unsafe extern "C" fn(
+    app_ctx: *mut c_void,
+    out_trailers: *mut *const NsgiHeader,
+    out_trailers_len: *mut usize,
+) -> i32;
+
 /// An HTTP response constructed by the application and passed to the host.
 ///
 /// # Ownership
@@ -344,6 +398,9 @@ pub struct NsgiResponse {
     /// Response body delivery, receiving `app_ctx` unchanged. The application supplies it for
     /// every response, including one that carries no body.
     pub read_body: NsgiReadResponseBody,
+    /// Response trailers delivery, receiving `app_ctx` unchanged. `None` when the application
+    /// sends no trailer section.
+    pub read_trailers: Option<NsgiReadResponseTrailers>,
 }
 
 /// The canonical type signature of the application's connection open function.
