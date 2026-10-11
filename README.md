@@ -17,8 +17,10 @@ A language-agnostic gateway interface protocol over C ABI. This crate provides t
 | `NsgiCloseConnection` | Type alias for the `nsgi_close_connection` connection close signature |
 | `NsgiGetVar` | Type alias for the host variable lookup carried on `NsgiRequest` |
 | `NsgiReadRequestBody` | Type alias for the host request body read callback carried on `NsgiRequest` |
+| `NsgiReadRequestTrailers` | Type alias for the host request trailers read callback carried on `NsgiRequest` |
 | `NsgiRespond` | Type alias for the host response completion callback carried on `NsgiRequest` |
 | `NsgiReadResponseBody` | Type alias for the application response body read callback carried on `NsgiResponse` |
+| `NsgiReadResponseTrailers` | Type alias for the application response trailers read callback carried on `NsgiResponse` |
 | `NsgiCancel` | Type alias for the application cancellation callback carried on `NsgiPending` |
 
 ## License
