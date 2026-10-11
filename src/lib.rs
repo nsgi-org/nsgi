@@ -93,9 +93,9 @@ pub struct NsgiAddr {
 /// Beyond case, a name carries no byte in `0x00..=0x20` or `0x7F..=0xFF`, and no colon.
 ///
 /// # Ownership
-/// Carried by [`NsgiRequest`], these fields are borrowed from the host, and the application does
-/// not free them. Carried by [`NsgiResponse`], they are the application's own; the host never
-/// interprets or frees them, and static memory (e.g. `b"content-type"`) is as legal as heap.
+/// Received from the host, these fields are borrowed, and the application does not free them.
+/// Supplied by the application, they are the application's own; the host never interprets or frees
+/// them, and static memory (e.g. `b"content-type"`) is as legal as heap.
 #[repr(C)]
 pub struct NsgiHeader {
     /// Header name bytes (e.g. `b"content-type"`).
@@ -204,15 +204,15 @@ pub type NsgiReadRequestBody = unsafe extern "C" fn(
 /// `nsgi_free_response` without transmitting it.
 ///
 /// The host orders the call so that state the application wrote before making it is visible to the
-/// thread that afterwards reads the response and calls [`NsgiResponse::read_body`].
+/// thread that afterwards reads the response and calls its callbacks.
 pub type NsgiRespond = unsafe extern "C" fn(host_ctx: *mut c_void, res: *const NsgiResponse);
 
 /// An HTTP request constructed by the host and passed to the application.
 ///
 /// # Ownership
 /// Every pointer field is borrowed from the host for the duration of the `nsgi_handle` call. The
-/// application does not free any of them. Body chunks are borrowed on the narrower window described
-/// on [`NsgiReadRequestBody`].
+/// application does not free any of them. What a callback writes is borrowed on the window that
+/// callback describes.
 #[repr(C)]
 pub struct NsgiRequest {
     /// One of the `NSGI_SCHEME_*` constants. Describes the hop the host itself terminated; never
@@ -297,10 +297,6 @@ pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
 /// `nsgi_free_response`. A host that transmitted part of a chunk keeps the remainder by not calling
 /// again; one coalescing several chunks into a single write copies them.
 ///
-/// The callback runs after `nsgi_handle` has returned, so a chunk does not point into the request,
-/// into a value obtained from [`NsgiRequest::get_var`], or into a chunk obtained from
-/// [`NsgiRequest::read_body`].
-///
 /// # Terminal statuses
 /// Once [`NSGI_RESPONSE_BODY_END`] or [`NSGI_RESPONSE_BODY_ERROR`] is reported, every later call
 /// reports that same status. A response carrying no body reports [`NSGI_RESPONSE_BODY_END`] on the
@@ -311,10 +307,9 @@ pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
 ///
 /// # Host obligations
 /// A host unable to accept more bytes at this moment stops calling until it can, which is the whole
-/// of backpressure. It may instead stop permanently and go straight to `nsgi_free_response`, which
-/// is what a client disconnecting, a host timeout, or a connection error looks like from the
-/// application's side; abandonment carries no status. A callback that neither yields nor completes
-/// is bounded by the host's idle timeout.
+/// of backpressure. It may instead stop permanently and go straight to `nsgi_free_response`;
+/// abandonment carries no status. A callback that neither yields nor completes is bounded by the
+/// host's idle timeout.
 ///
 /// The host may transmit the status line and header section as soon as the response reaches it.
 pub type NsgiReadResponseBody = unsafe extern "C" fn(
@@ -326,9 +321,9 @@ pub type NsgiReadResponseBody = unsafe extern "C" fn(
 /// An HTTP response constructed by the application and passed to the host.
 ///
 /// # Ownership
-/// The application owns all memory reachable through it, and the host borrows it until the
-/// `nsgi_free_response` call that releases it. The host does not modify or free any field directly.
-/// Body chunks are borrowed on the narrower window described on [`NsgiReadResponseBody`].
+/// The application owns all memory reachable through it or written by its callbacks, and the host
+/// borrows it until the `nsgi_free_response` call that releases it, or on a narrower window the
+/// callback describes. The host does not modify or free any field directly.
 #[repr(C)]
 pub struct NsgiResponse {
     /// HTTP status code (e.g. `200`, `404`).
@@ -376,8 +371,7 @@ pub const NSGI_HANDLE_PENDING: i32 = 1;
 
 /// The canonical type signature of the application's cancellation callback.
 ///
-/// The host calls it once it has stopped wanting the response, such as when the client
-/// disconnected, its own timeout fired, or the connection failed. `cancel_ctx` is
+/// The host calls it once it has stopped wanting the response. `cancel_ctx` is
 /// [`NsgiPending::cancel_ctx`] passed back unchanged.
 ///
 /// The application still calls [`NsgiRequest::respond`] in every case, and the host discards the
@@ -462,9 +456,9 @@ pub type NsgiApp = unsafe extern "C" fn(
 /// # Host obligations
 /// The host calls it exactly once for every response the application handed over, through either
 /// path and including one carried by a [`NsgiRequest::respond`] call the host discarded, so the
-/// application can release whatever it allocated. The call comes after the last
-/// [`NsgiResponse::read_body`] call and never concurrently with one, whether or not the body
-/// reached completion.
+/// application can release whatever it allocated. The call comes after the last call to a callback
+/// the response carries and never concurrently with one, whether or not the response reached
+/// completion.
 pub type NsgiFreeResponse = unsafe extern "C" fn(*const NsgiResponse);
 
 /// The canonical type signature of the application's connection close function.
