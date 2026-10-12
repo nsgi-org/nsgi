@@ -1,0 +1,25 @@
+name: Comments
+
+on:
+  pull_request:
+
+jobs:
+  wrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # `wrap_comments` and `comment_width` are only available on nightly rustfmt.
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+        with:
+          toolchain: nightly
+          components: rustfmt
+      - name: Join each comment paragraph onto one line
+        run: |
+          for f in $(git ls-files '*.rs'); do
+            awk -f .github/scripts/join-comment-paragraphs.awk "$f" > "$f.tmp"
+            mv "$f.tmp" "$f"
+          done
+      - name: Rewrap comments to the comment width
+        run: cargo fmt -- --config wrap_comments=true,comment_width=100
+      - name: Check that every paragraph was already filled to the width
+        run: git diff --exit-code
