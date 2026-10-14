@@ -120,7 +120,6 @@ pub const NSGI_VAR_ERROR: i32 = -1;
 ///
 /// Carries connection and server metadata such as `tls.version`, `tls.cipher`, `server.software`,
 /// `proxy_protocol.src_addr`. Names are lowercase ASCII, dot-separated, and compared bytewise.
-/// Request headers are not available here; they are already in [`NsgiRequest::headers`].
 ///
 /// `host_ctx` is [`NsgiRequest::host_ctx`] passed back unchanged. On [`NSGI_VAR_OK`] the host
 /// writes a pointer and length borrowed for the duration of the `nsgi_handle` call, or, for a call
@@ -316,8 +315,7 @@ pub struct NsgiRequest {
     /// The body length the request declared, or [`NSGI_CONTENT_LENGTH_UNKNOWN`] when it declared
     /// none; a host rejects a request declaring that length. A client may declare a length and
     /// stop sending short of it. A host accepting a request that declares both a length and a
-    /// transfer coding honors the coding alone, reports the length unknown, and closes the
-    /// connection after responding.
+    /// transfer coding reports the length unknown.
     pub content_length: u64,
     /// Opaque host context pointer, possibly null. The application does not dereference or free
     /// this.
@@ -347,8 +345,7 @@ pub const NSGI_RESPONSE_BODY_END: i32 = 1;
 /// synchronous application blocks instead of returning this.
 pub const NSGI_RESPONSE_BODY_AGAIN: i32 = 2;
 /// The application failed and the body will not complete. The status line is already committed, so
-/// the host leaves the message incomplete rather than completing it: it sends no terminating chunk,
-/// does not pad to a declared length, and closes the connection or resets the stream.
+/// the host leaves the message incomplete rather than completing it.
 pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
 
 /// The canonical type signature of the application's response body read callback.
