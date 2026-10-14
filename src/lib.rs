@@ -9,9 +9,8 @@
 //! ## Field validity
 //!
 //! Every field carrying HTTP message text is free of the bytes that delimit an HTTP/1.1 message: no
-//! NUL, LF or CR at any position, and no leading or trailing SP or HTAB. A host rejects a request
-//! carrying them, with 400 unless a more suitable status applies. An application does not return
-//! them either, and a host answers 500 rather than transmitting them.
+//! NUL, LF or CR at any position, and no leading or trailing SP or HTAB. Whatever carries a field
+//! states how a host handles one breaking this rule.
 //!
 //! ## Pointer validity
 //!
@@ -231,6 +230,9 @@ pub type NsgiRespond = unsafe extern "C" fn(host_ctx: *mut c_void, res: *const N
 
 /// An HTTP request constructed by the host and passed to the application.
 ///
+/// A host rejects a request whose fields break the [field validity rule](crate#field-validity),
+/// with 400 unless a more suitable status applies.
+///
 /// # Ownership
 /// Every pointer field is borrowed from the host for the duration of the `nsgi_handle` call. The
 /// application does not free any of them. What a callback writes is borrowed on the window that
@@ -373,6 +375,9 @@ pub type NsgiReadResponseTrailers = unsafe extern "C" fn(
 ) -> i32;
 
 /// An HTTP response constructed by the application and passed to the host.
+///
+/// A host answers 500 rather than transmitting a response whose fields break the [field validity
+/// rule](crate#field-validity).
 ///
 /// # Ownership
 /// The application owns all memory reachable through it or written by its callbacks, and the host
