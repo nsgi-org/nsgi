@@ -204,6 +204,43 @@ pub type NsgiReadRequestTrailers = unsafe extern "C" fn(
     out_trailers_len: *mut usize,
 ) -> i32;
 
+/// The host accepted the interim response and transmits it ahead of the final response.
+pub const NSGI_INFORM_OK: i32 = 0;
+/// The host declined the interim response and transmits nothing for it.
+pub const NSGI_INFORM_DECLINED: i32 = 1;
+/// The interim response is invalid, and the host transmits nothing for it.
+pub const NSGI_INFORM_ERROR_INVALID: i32 = -1;
+/// The final response has already reached the host.
+pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
+
+/// The canonical type signature of the host's interim response callback.
+///
+/// Carries an interim response, whose `status` is 1xx. `host_ctx` is [`NsgiRequest::host_ctx`]
+/// passed back unchanged. `headers` is null when `headers_len` is 0.
+///
+/// Returns one of the `NSGI_INFORM_*` statuses. A host treats an interim response breaking the
+/// [field validity rule](crate#field-validity) as [`NSGI_INFORM_ERROR_INVALID`].
+///
+/// # Lifetimes
+/// The pointers address storage the application owns, borrowed for the duration of the call; the
+/// host copies whatever it keeps.
+///
+/// # Ordering
+/// The call may come from any thread, including one the host did not create, and from within
+/// `nsgi_handle` on the thread running it. A call made once the final response has reached the
+/// host, through the out-parameter or through [`NsgiRequest::respond`], reports
+/// [`NSGI_INFORM_ERROR_FINAL`].
+///
+/// # Host obligations
+/// The host transmits the interim responses it accepts in the order of the calls. It may decline
+/// any of them, and a call it discards reports [`NSGI_INFORM_DECLINED`].
+pub type NsgiInform = unsafe extern "C" fn(
+    host_ctx: *mut c_void,
+    status: u16,
+    headers: *const NsgiHeader,
+    headers_len: usize,
+) -> i32;
+
 /// The canonical type signature of the host's response completion callback.
 ///
 /// Carries the response for a request whose `nsgi_handle` call returned [`NSGI_HANDLE_PENDING`].
@@ -294,6 +331,9 @@ pub struct NsgiRequest {
     /// Request trailers delivery, receiving `host_ctx` unchanged. The host supplies it for every
     /// request, including one that carries no trailer section.
     pub read_trailers: NsgiReadRequestTrailers,
+    /// Interim response delivery, receiving `host_ctx` unchanged. The host supplies it for every
+    /// request.
+    pub inform: NsgiInform,
     /// Response completion, receiving `host_ctx` unchanged. The host supplies it for every
     /// request.
     pub respond: NsgiRespond,
@@ -385,7 +425,7 @@ pub type NsgiReadResponseTrailers = unsafe extern "C" fn(
 /// callback describes. The host does not modify or free any field directly.
 #[repr(C)]
 pub struct NsgiResponse {
-    /// HTTP status code (e.g. `200`, `404`).
+    /// HTTP status code of the final response (e.g. `200`, `404`).
     pub status: u16,
     /// Response headers, carrying `content-length` when the application knows the body's length
     /// and never `transfer-encoding`. Null when `headers_len` is 0.
