@@ -344,7 +344,7 @@ pub const NSGI_RESPONSE_BODY_END: i32 = 1;
 /// No bytes are available at this moment, and more may follow; the host calls `read_body` again. A
 /// synchronous application blocks instead of returning this.
 pub const NSGI_RESPONSE_BODY_AGAIN: i32 = 2;
-/// The application failed and the body will not complete. The status line is already committed, so
+/// The application failed and the body will not complete. The status code is already committed, so
 /// the host leaves the message incomplete rather than completing it.
 pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
 
@@ -375,7 +375,7 @@ pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
 /// abandonment carries no status. A callback that neither yields nor completes is bounded by the
 /// host's idle timeout.
 ///
-/// The host may transmit the status line and header section as soon as the response reaches it.
+/// The host may transmit the status code and header section as soon as the response reaches it.
 pub type NsgiReadResponseBody = unsafe extern "C" fn(
     app_ctx: *mut c_void,
     out_chunk: *mut *const u8,
