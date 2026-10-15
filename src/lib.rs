@@ -136,12 +136,24 @@ pub type NsgiGetVar = unsafe extern "C" fn(
     out_value_len: *mut usize,
 ) -> i32;
 
+/// The canonical type signature of the wakeup callback passed to a body read callback.
+///
+/// The application passes one to [`NsgiRequest::read_body`] and the host one to
+/// [`NsgiResponse::read_body`], each with a `wake_ctx` it receives unchanged. `wake_ctx` is an
+/// opaque context pointer, possibly null, owned by whichever passed it; the other does not
+/// dereference or free it.
+///
+/// A call tells whichever passed it that the body can make progress. It schedules the next
+/// `read_body` call rather than making it, and does not wait on anything a `read_body` call may
+/// hold, since it may be called from within one.
+pub type NsgiWake = unsafe extern "C" fn(wake_ctx: *mut c_void);
+
 /// A chunk is available. A zero-length chunk is not a legal success.
 pub const NSGI_REQUEST_BODY_OK: i32 = 0;
 /// The body is complete; no further bytes will follow.
 pub const NSGI_REQUEST_BODY_END: i32 = 1;
-/// No bytes are available at this moment, and more may follow; the application calls `read_body`
-/// again. A synchronous host blocks instead of returning this.
+/// No bytes are available at this moment, and more may follow; the host calls `wake` once that
+/// changes.
 pub const NSGI_REQUEST_BODY_AGAIN: i32 = 2;
 /// The connection ended before the body was complete.
 pub const NSGI_REQUEST_BODY_ERROR_TERMINATED: i32 = -1;
@@ -155,9 +167,10 @@ pub const NSGI_REQUEST_BODY_ERROR_TIMEOUT: i32 = -4;
 /// The canonical type signature of the host's request body read callback.
 ///
 /// Delivers the request body as chunks borrowed from host memory, one per call, in the order the
-/// bytes arrived. `host_ctx` is [`NsgiRequest::host_ctx`] passed back unchanged. On
-/// [`NSGI_REQUEST_BODY_OK`] the host writes the chunk pointer and length; on any other status the
-/// out-parameters are left untouched.
+/// bytes arrived. `host_ctx` is [`NsgiRequest::host_ctx`] passed back unchanged. `wake` is the
+/// application's [`NsgiWake`], receiving `wake_ctx` unchanged, or `None` when the application wants
+/// none. On [`NSGI_REQUEST_BODY_OK`] the host writes the chunk pointer and length; on any other
+/// status the out-parameters are left untouched.
 ///
 /// Returns one of the `NSGI_REQUEST_BODY_*` statuses.
 ///
@@ -171,12 +184,33 @@ pub const NSGI_REQUEST_BODY_ERROR_TIMEOUT: i32 = -4;
 /// Once [`NSGI_REQUEST_BODY_END`] or an error is reported, every later call reports that same
 /// status. A request carrying no body reports [`NSGI_REQUEST_BODY_END`] on the first call.
 ///
+/// # Wakeups
+/// A call passing a `wake` never waits for the body to make progress, meaning for a chunk, the end
+/// of the body or an error to become available, and reports [`NSGI_REQUEST_BODY_AGAIN`] instead. A
+/// call passing none waits.
+///
+/// For every call reporting [`NSGI_REQUEST_BODY_AGAIN`], the host calls that call's `wake` exactly
+/// once, as soon as the body can make progress. The application can release `wake_ctx` within that
+/// call.
+///
+/// # Ordering
+/// The `wake` call may come from any thread, including one the application did not create, and may
+/// precede the return reporting [`NSGI_REQUEST_BODY_AGAIN`]. It comes no later than the host
+/// reclaiming the request after [`NsgiCancel`] or calling `nsgi_close_connection` for its
+/// connection.
+///
+/// The application makes its next call only once `wake` has been called and the call reporting
+/// [`NSGI_REQUEST_BODY_AGAIN`] has returned, in whichever order. It orders that call after the
+/// `wake` call, so that state the host wrote before calling `wake` is visible within it.
+///
 /// # Host obligations
 /// The host answers `Expect: 100-continue` on the first call and not before it. An application may
 /// respond with the body unread; the host then drains the remainder or closes the connection rather
 /// than parsing those bytes as a subsequent message.
 pub type NsgiReadRequestBody = unsafe extern "C" fn(
     host_ctx: *mut c_void,
+    wake_ctx: *mut c_void,
+    wake: Option<NsgiWake>,
     out_chunk: *mut *const u8,
     out_chunk_len: *mut usize,
 ) -> i32;
@@ -341,8 +375,8 @@ pub struct NsgiRequest {
 pub const NSGI_RESPONSE_BODY_OK: i32 = 0;
 /// The body is complete; no further bytes will follow.
 pub const NSGI_RESPONSE_BODY_END: i32 = 1;
-/// No bytes are available at this moment, and more may follow; the host calls `read_body` again. A
-/// synchronous application blocks instead of returning this.
+/// No bytes are available at this moment, and more may follow; the application calls `wake` once
+/// that changes.
 pub const NSGI_RESPONSE_BODY_AGAIN: i32 = 2;
 /// The application failed and the body will not complete. The status code is already committed, so
 /// the host leaves the message incomplete rather than completing it.
@@ -351,8 +385,10 @@ pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
 /// The canonical type signature of the application's response body read callback.
 ///
 /// Delivers the response body as chunks borrowed from application memory, one per call. `app_ctx`
-/// is [`NsgiResponse::app_ctx`] passed back unchanged. On [`NSGI_RESPONSE_BODY_OK`] the application
-/// writes the chunk pointer and length; on any other status the out-parameters are left untouched.
+/// is [`NsgiResponse::app_ctx`] passed back unchanged. `wake` is the host's [`NsgiWake`], receiving
+/// `wake_ctx` unchanged, or `None` when the host wants none. On [`NSGI_RESPONSE_BODY_OK`] the
+/// application writes the chunk pointer and length; on any other status the out-parameters are left
+/// untouched.
 ///
 /// Returns one of the `NSGI_RESPONSE_BODY_*` statuses.
 ///
@@ -366,8 +402,25 @@ pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
 /// reports that same status. A response carrying no body reports [`NSGI_RESPONSE_BODY_END`] on the
 /// first call.
 ///
+/// # Wakeups
+/// A call passing a `wake` never waits for the body to make progress, meaning for a chunk, the end
+/// of the body or an error to become available, and reports [`NSGI_RESPONSE_BODY_AGAIN`] instead. A
+/// call passing none waits.
+///
+/// For every call reporting [`NSGI_RESPONSE_BODY_AGAIN`], the application calls that call's `wake`
+/// exactly once, as soon as the body can make progress. The host can release `wake_ctx` within that
+/// call.
+///
 /// # Ordering
 /// A call may come from a thread other than the one that ran `nsgi_handle`.
+///
+/// The `wake` call may come from any thread, including one the host did not create, and may precede
+/// the return reporting [`NSGI_RESPONSE_BODY_AGAIN`]. It comes no later than the return of
+/// `nsgi_free_response` for the response.
+///
+/// The host makes its next call only once `wake` has been called and the call reporting
+/// [`NSGI_RESPONSE_BODY_AGAIN`] has returned, in whichever order. It orders that call after the
+/// `wake` call, so that state the application wrote before calling `wake` is visible within it.
 ///
 /// # Host obligations
 /// A host unable to accept more bytes at this moment stops calling until it can, which is the whole
@@ -378,6 +431,8 @@ pub const NSGI_RESPONSE_BODY_ERROR: i32 = -1;
 /// The host may transmit the status code and header section as soon as the response reaches it.
 pub type NsgiReadResponseBody = unsafe extern "C" fn(
     app_ctx: *mut c_void,
+    wake_ctx: *mut c_void,
+    wake: Option<NsgiWake>,
     out_chunk: *mut *const u8,
     out_chunk_len: *mut usize,
 ) -> i32;
@@ -396,7 +451,9 @@ pub const NSGI_RESPONSE_TRAILERS_ERROR: i32 = -1;
 /// the out-parameters are left untouched.
 ///
 /// Returns one of the `NSGI_RESPONSE_TRAILERS_*` statuses. A host treats a trailer section breaking
-/// the [field validity rule](crate#field-validity) as [`NSGI_RESPONSE_TRAILERS_ERROR`].
+/// the [field validity rule](crate#field-validity) as [`NSGI_RESPONSE_TRAILERS_ERROR`]. The
+/// application answers without waiting, so it reports [`NSGI_RESPONSE_BODY_END`] only once the
+/// trailer section is ready.
 ///
 /// # Ordering
 /// The call comes after the [`NsgiResponse::read_body`] call reporting [`NSGI_RESPONSE_BODY_END`]
