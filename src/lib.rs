@@ -252,7 +252,9 @@ pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
 /// passed back unchanged. `headers` is null when `headers_len` is 0.
 ///
 /// Returns one of the `NSGI_INFORM_*` statuses. A host treats an interim response breaking the
-/// [field validity rule](crate#field-validity) as [`NSGI_INFORM_ERROR_INVALID`].
+/// [field validity rule](crate#field-validity) as [`NSGI_INFORM_ERROR_INVALID`]. A call made once
+/// the final response has reached the host, through the out-parameter or through
+/// [`NsgiRequest::respond`], reports [`NSGI_INFORM_ERROR_FINAL`].
 ///
 /// # Lifetimes
 /// The pointers address storage the application owns, borrowed for the duration of the call; the
@@ -260,9 +262,7 @@ pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
 ///
 /// # Ordering
 /// The call may come from any thread, including one the host did not create, and from within
-/// `nsgi_handle` on the thread running it. A call made once the final response has reached the
-/// host, through the out-parameter or through [`NsgiRequest::respond`], reports
-/// [`NSGI_INFORM_ERROR_FINAL`].
+/// `nsgi_handle` on the thread running it.
 ///
 /// # Host obligations
 /// The host transmits the interim responses it accepts in the order of the calls. It may decline
@@ -290,12 +290,13 @@ pub type NsgiInform = unsafe extern "C" fn(
 /// response as available. It does not come from within `nsgi_handle` on the thread running it,
 /// where the application answers through the out-parameter instead, nor from within [`NsgiCancel`].
 ///
+/// The host orders the call so that state the application wrote before making it is visible to the
+/// thread that afterwards reads the response and calls its callbacks.
+///
+/// # Host obligations
 /// An application that both made this call and returned [`NSGI_HANDLE_DONE`] produces two
 /// responses: the host transmits the one in the out-parameter and passes the other to
 /// `nsgi_free_response` without transmitting it.
-///
-/// The host orders the call so that state the application wrote before making it is visible to the
-/// thread that afterwards reads the response and calls its callbacks.
 pub type NsgiRespond = unsafe extern "C" fn(host_ctx: *mut c_void, res: *const NsgiResponse);
 
 /// An HTTP request constructed by the host and passed to the application.
@@ -455,13 +456,12 @@ pub const NSGI_RESPONSE_TRAILERS_ERROR: i32 = -1;
 /// application answers without waiting, so it reports [`NSGI_RESPONSE_BODY_END`] only once the
 /// trailer section is ready.
 ///
+/// The host calls it at most once, and only when the message framing can carry a trailer section.
+///
 /// # Ordering
 /// The call comes after the [`NsgiResponse::read_body`] call reporting [`NSGI_RESPONSE_BODY_END`]
 /// has returned, and the host orders it so that state the application wrote during that call is
 /// visible within it.
-///
-/// # Host obligations
-/// The host calls it at most once, and only when the message framing can carry a trailer section.
 pub type NsgiReadResponseTrailers = unsafe extern "C" fn(
     app_ctx: *mut c_void,
     out_trailers: *mut *const NsgiHeader,
@@ -511,12 +511,13 @@ pub struct NsgiResponse {
 /// pub unsafe extern "C" fn nsgi_open_connection() -> *mut c_void { ... }
 /// ```
 ///
-/// The host calls it at most once for each transport connection it terminates, before calling
-/// `nsgi_handle` for any request on that connection. A host without transport connections treats
-/// each request as arriving on a connection of its own.
+/// The host calls it at most once for each transport connection it terminates. A host without
+/// transport connections treats each request as arriving on a connection of its own.
 ///
-/// The host orders the call so that state the application wrote during it is visible within every
-/// later call that receives the returned context.
+/// # Ordering
+/// The call returns before any `nsgi_handle` call for a request on that connection begins. The host
+/// orders it so that state the application wrote during it is visible within every `nsgi_handle`
+/// and `nsgi_close_connection` call that receives the returned context.
 pub type NsgiOpenConnection = unsafe extern "C" fn() -> *mut c_void;
 
 /// The response is in the response out-parameter and the request is complete.
@@ -527,25 +528,24 @@ pub const NSGI_HANDLE_PENDING: i32 = 1;
 
 /// The canonical type signature of the application's cancellation callback.
 ///
-/// The host calls it once it has stopped wanting the response. `cancel_ctx` is
+/// The host calls it at most once, when it has stopped wanting the response. `cancel_ctx` is
 /// [`NsgiPending::cancel_ctx`] passed back unchanged.
 ///
 /// The application still calls [`NsgiRequest::respond`] in every case, and the host discards the
-/// response to a request it has abandoned. Nothing reaches `cancel_ctx` once `respond` has
-/// returned, so that is where the application releases it.
+/// response to a request it has abandoned. The request's handles keep their meanings after the call
+/// and report their own errors. Nothing reaches `cancel_ctx` once `respond` has returned, so that
+/// is where the application releases it.
 ///
 /// # Ordering
-/// The call happens at most once and never before `nsgi_handle` has returned
-/// [`NSGI_HANDLE_PENDING`]; a host that detected the condition earlier makes it once that return
-/// has happened.
+/// The call never comes before `nsgi_handle` has returned [`NSGI_HANDLE_PENDING`]; a host that
+/// detected the condition earlier makes it once that return has happened.
 ///
 /// It never runs concurrently with the request's `respond` call and never follows one, so a
 /// `respond` call may be waiting on it: it does not wait on anything that path holds, and does not
 /// itself call `respond`.
 ///
 /// The host orders the call so that state the host wrote before making it is visible within it.
-/// Against the application's own work on the request it is not ordered at all, and the request's
-/// handles keep their meanings afterwards and report their own errors.
+/// Against the application's own work on the request it is not ordered at all.
 ///
 /// # Host obligations
 /// A host may reclaim a canceled request once this call has returned, after which a `respond` call
@@ -604,17 +604,18 @@ pub type NsgiApp = unsafe extern "C" fn(
 /// pub unsafe extern "C" fn nsgi_free_response(res: *const NsgiResponse) { ... }
 /// ```
 ///
+/// The host calls it exactly once for every response the application handed over, through either
+/// path and including one carried by a [`NsgiRequest::respond`] call the host discarded, so the
+/// application can release whatever it allocated.
+///
 /// # Lifetimes
 /// The pointer addresses storage the host owns, borrowed for the duration of the call: the
 /// application releases what the fields point to, not the storage the pointer addresses, and does
 /// not retain the pointer past the return.
 ///
-/// # Host obligations
-/// The host calls it exactly once for every response the application handed over, through either
-/// path and including one carried by a [`NsgiRequest::respond`] call the host discarded, so the
-/// application can release whatever it allocated. The call comes after the last call to a callback
-/// the response carries and never concurrently with one, whether or not the response reached
-/// completion.
+/// # Ordering
+/// The call comes after the last call to a callback the response carries and never concurrently
+/// with one, whether or not the response reached completion.
 pub type NsgiFreeResponse = unsafe extern "C" fn(*const NsgiResponse);
 
 /// The canonical type signature of the application's connection close function.
@@ -626,10 +627,11 @@ pub type NsgiFreeResponse = unsafe extern "C" fn(*const NsgiResponse);
 /// pub unsafe extern "C" fn nsgi_close_connection(connection_ctx: *mut c_void) { ... }
 /// ```
 ///
-/// The host calls it once for each `nsgi_open_connection` call, after the connection has delivered
-/// its last request and every `nsgi_handle` and `nsgi_free_response` call for its requests has
-/// returned. `connection_ctx` is the value `nsgi_open_connection` returned, passed back unchanged.
+/// The host calls it once for each `nsgi_open_connection` call. `connection_ctx` is the value
+/// `nsgi_open_connection` returned, passed back unchanged.
 ///
-/// The host orders the call so that state the application wrote during those calls is visible
-/// within it.
+/// # Ordering
+/// The call begins only once the connection has delivered its last request and every `nsgi_handle`
+/// and `nsgi_free_response` call for its requests has returned. The host orders it so that state
+/// the application wrote during those calls is visible within it.
 pub type NsgiCloseConnection = unsafe extern "C" fn(connection_ctx: *mut c_void);
