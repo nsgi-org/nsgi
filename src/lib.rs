@@ -249,7 +249,8 @@ pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
 /// The canonical type signature of the host's interim response callback.
 ///
 /// Carries an interim response, whose `status` is 1xx. `host_ctx` is [`NsgiRequest::host_ctx`]
-/// passed back unchanged. `headers` is null when `headers_len` is 0.
+/// passed back unchanged. `headers` is null when `headers_len` is 0; the host leaves out any
+/// `content-length` it carries.
 ///
 /// Returns one of the `NSGI_INFORM_*` statuses. A host treats an interim response breaking the
 /// [field validity rule](crate#field-validity) as [`NSGI_INFORM_ERROR_INVALID`]. A call made once
@@ -485,10 +486,15 @@ pub struct NsgiResponse {
     /// and never `transfer-encoding`. Null when `headers_len` is 0.
     ///
     /// A transfer coding frames the connection the host terminated, and chunk boundaries are not
-    /// message framing. A host transmits a declared length as given and holds the application to
-    /// it, treating a body that ends short of or runs past it as [`NSGI_RESPONSE_BODY_ERROR`];
-    /// absent a declared length it frames the response with whatever its protocol version
-    /// provides.
+    /// message framing. A host transmits a declared length as given, other than one it leaves out
+    /// as below, and, for a response carrying content, holds the application to it, treating a
+    /// body that ends short of or runs past it as [`NSGI_RESPONSE_BODY_ERROR`]; absent a declared
+    /// length it frames the response with whatever its protocol version provides.
+    ///
+    /// A response to HEAD, and one whose status is 204 or 304, carries no content: the host
+    /// transmits none of the body and need not read it. A response to HEAD, or a 304, may still
+    /// declare the length its content would have had in a response to the same request made with
+    /// GET. The host leaves out any `content-length` a 204, or a 2xx response to CONNECT, carries.
     pub headers: *const NsgiHeader,
     pub headers_len: usize,
     /// Opaque application context pointer, possibly null. The host does not dereference or free
