@@ -331,12 +331,16 @@ pub struct NsgiRequest {
     pub method: *const u8,
     pub method_len: usize,
     /// Authority component bytes, as received and including any port. Taken from the request
-    /// target when it is in absolute form, otherwise from `:authority` or `Host`. Never carries
-    /// the deprecated userinfo subcomponent; a host rejects such a request. Null when the request
-    /// conveys no authority.
+    /// target when it is in absolute or authority form, otherwise from `:authority` or `Host`.
+    /// Never carries the deprecated userinfo subcomponent; a host rejects such a request. Null
+    /// when the request conveys no authority.
     pub authority: *const u8,
     pub authority_len: usize,
     /// Path component bytes as received (e.g. `b"/api/v1"`); a host does not percent-decode.
+    ///
+    /// A server-wide OPTIONS request, whose target is the asterisk alone, has a path of `b"*"`. A
+    /// CONNECT request whose target is the authority alone, carrying no `:path`, has a null path
+    /// and a `path_len` of 0; one carrying a `:path`, as with `:protocol`, has that path.
     pub path: *const u8,
     pub path_len: usize,
     /// Query component bytes as received; a host does not percent-decode. The `?` delimiter is
