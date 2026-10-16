@@ -175,10 +175,11 @@ pub const NSGI_REQUEST_BODY_ERROR_TIMEOUT: i32 = -4;
 /// Returns one of the `NSGI_REQUEST_BODY_*` statuses.
 ///
 /// # Chunk lifetime
-/// A chunk stays valid until the next call for the same request, and, for a call made during
-/// `nsgi_handle`, never beyond that return. The application copies whatever it keeps past that
-/// point, such as a fragment spanning a chunk boundary. A call moves past the end of the current
-/// chunk rather than reading a requested number of bytes.
+/// A chunk stays valid until the next call for the same request, and never beyond the return of
+/// `nsgi_handle`, for a call made during it, or of the request's last `nsgi_free_response` call.
+/// The application copies whatever it keeps past that point, such as a fragment spanning a chunk
+/// boundary. A call moves past the end of the current chunk rather than reading a requested number
+/// of bytes.
 ///
 /// # Terminal statuses
 /// Once [`NSGI_REQUEST_BODY_END`] or an error is reported, every later call reports that same
@@ -204,9 +205,13 @@ pub const NSGI_REQUEST_BODY_ERROR_TIMEOUT: i32 = -4;
 /// `wake` call, so that state the host wrote before calling `wake` is visible within it.
 ///
 /// # Host obligations
-/// The host answers `Expect: 100-continue` on the first call and not before it. An application may
-/// respond with the body unread; the host then drains the remainder or closes the connection rather
-/// than parsing those bytes as a subsequent message.
+/// The host answers `Expect: 100-continue` on the first call and not before it.
+///
+/// Handing over the response does not end the request body: the application may go on calling while
+/// the host reads the response, so that the two bodies stream independently, until the request's
+/// last `nsgi_free_response` call has returned, and makes no call after that. It may equally leave
+/// the body unread; once that return has happened, the host drains the remainder or closes the
+/// connection rather than parsing those bytes as a subsequent message.
 pub type NsgiReadRequestBody = unsafe extern "C" fn(
     host_ctx: *mut c_void,
     wake_ctx: *mut c_void,
@@ -226,7 +231,11 @@ pub const NSGI_REQUEST_TRAILERS_ERROR_INCOMPLETE: i32 = -1;
 /// [`NsgiRequest::host_ctx`] passed back unchanged. On [`NSGI_REQUEST_TRAILERS_OK`] the host writes
 /// the array pointer, null when the length is 0, and length, borrowed for the duration of the
 /// `nsgi_handle` call, or, for a call made after that return, until the next `read_trailers` call
-/// for the same request; on any other status the out-parameters are left untouched.
+/// for the same request and never beyond the return of the request's last `nsgi_free_response`
+/// call; on any other status the out-parameters are left untouched.
+///
+/// The application may call it after handing over the response, on the window
+/// [`NsgiReadRequestBody`] describes.
 ///
 /// Returns one of the `NSGI_REQUEST_TRAILERS_*` statuses. A host that received a trailer section
 /// breaking the [field validity rule](crate#field-validity) reports
