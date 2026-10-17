@@ -136,16 +136,16 @@ pub type NsgiGetVar = unsafe extern "C" fn(
     out_value_len: *mut usize,
 ) -> i32;
 
-/// The canonical type signature of the wakeup callback passed to a body read callback.
+/// The canonical type signature of the wakeup callback passed to a body or tunnel read callback.
 ///
-/// The application passes one to [`NsgiRequest::read_body`] and the host one to
-/// [`NsgiResponse::read_body`], each with a `wake_ctx` it receives unchanged. `wake_ctx` is an
-/// opaque context pointer, possibly null, owned by whichever passed it; the other does not
-/// dereference or free it.
+/// The application passes one to [`NsgiRequest::read_body`] and [`NsgiRequest::read_tunnel`], and
+/// the host one to [`NsgiResponse::read_body`], each with a `wake_ctx` it receives unchanged.
+/// `wake_ctx` is an opaque context pointer, possibly null, owned by whichever passed it; the other
+/// does not dereference or free it.
 ///
-/// A call tells whichever passed it that the body can make progress. It schedules the next
-/// `read_body` call rather than making it, and does not wait on anything a `read_body` call may
-/// hold, since it may be called from within one.
+/// A call tells whichever passed it that the stream can make progress. It schedules the next read
+/// call rather than making it, and does not wait on anything a read call may hold, since it may be
+/// called from within one.
 pub type NsgiWake = unsafe extern "C" fn(wake_ctx: *mut c_void);
 
 /// A chunk is available. A zero-length chunk is not a legal success.
@@ -246,6 +246,88 @@ pub type NsgiReadRequestTrailers = unsafe extern "C" fn(
     out_trailers_len: *mut usize,
 ) -> i32;
 
+/// A chunk is available. A zero-length chunk is not a legal success.
+pub const NSGI_TUNNEL_OK: i32 = 0;
+/// The client closed its sending direction; no further bytes will follow.
+pub const NSGI_TUNNEL_END: i32 = 1;
+/// No bytes are available at this moment, and more may follow; the host calls `wake` once that
+/// changes.
+pub const NSGI_TUNNEL_AGAIN: i32 = 2;
+/// The exchange did not switch to a tunnel.
+pub const NSGI_TUNNEL_ERROR_NOT_SWITCHED: i32 = -1;
+/// The tunnel was aborted, or the connection ended, before the client closed its sending direction.
+pub const NSGI_TUNNEL_ERROR_TERMINATED: i32 = -2;
+/// The host's read timeout fired before the next chunk arrived.
+pub const NSGI_TUNNEL_ERROR_TIMEOUT: i32 = -3;
+
+/// The canonical type signature of the host's tunnel read callback.
+///
+/// A final response can switch the exchange to a tunnel: a bidirectional byte stream that is no
+/// longer HTTP, such as a WebSocket. A 101 carrying `upgrade`, naming the protocol switched to,
+/// switches an HTTP/1.1 request carrying `upgrade`; HTTP/2 and HTTP/3 have no 101. A 2xx switches a
+/// CONNECT request on any version, including an extended CONNECT request, which carries
+/// [`NsgiRequest::protocol`].
+///
+/// Delivers the bytes the client sends through the tunnel after the request message, as chunks
+/// borrowed from host memory, one per call, in the order the bytes arrived. The switching
+/// response's [`NsgiResponse::read_body`] supplies the bytes the host sends, and the request body
+/// still delivers the request's own content, of which a CONNECT request has none. `host_ctx` is
+/// [`NsgiRequest::host_ctx`] passed back unchanged. `wake` is the application's [`NsgiWake`],
+/// receiving `wake_ctx` unchanged, or `None` when the application wants none. On [`NSGI_TUNNEL_OK`]
+/// the host writes the chunk pointer and length; on any other status the out-parameters are left
+/// untouched.
+///
+/// Returns one of the `NSGI_TUNNEL_*` statuses. The application may call it on the window
+/// [`NsgiReadRequestBody`] describes.
+///
+/// # Chunk lifetime
+/// A chunk stays valid until the next call for the same request, and never beyond the return of the
+/// request's last `nsgi_free_response` call.
+///
+/// # Terminal statuses
+/// Once [`NSGI_TUNNEL_END`] or an error is reported, every later call reports that same status.
+///
+/// # Wakeups
+/// A call passing a `wake` never waits for the tunnel to make progress, meaning for a chunk, the
+/// client closing its sending direction or an error to become available, and reports
+/// [`NSGI_TUNNEL_AGAIN`] instead. A call passing none waits.
+///
+/// Until the final response has reached the host, through the out-parameter or through
+/// [`NsgiRequest::respond`], the tunnel cannot make progress, so a call passing no `wake` before
+/// the application hands over the response waits on the application itself.
+///
+/// For every call reporting [`NSGI_TUNNEL_AGAIN`], the host calls that call's `wake` exactly once,
+/// as soon as the tunnel can make progress. The application can release `wake_ctx` within that
+/// call.
+///
+/// # Ordering
+/// The `wake` call may come from any thread, including one the application did not create, and may
+/// precede the return reporting [`NSGI_TUNNEL_AGAIN`]. It comes no later than the host reclaiming
+/// the request after [`NsgiCancel`] or calling `nsgi_close_connection` for its connection.
+///
+/// The application makes its next call only once `wake` has been called and the call reporting
+/// [`NSGI_TUNNEL_AGAIN`] has returned, in whichever order. It orders that call after the `wake`
+/// call, so that state the host wrote before calling `wake` is visible within it.
+///
+/// # Host obligations
+/// Each direction closes on its own. [`NSGI_RESPONSE_BODY_END`] closes the host's sending
+/// direction, [`NSGI_TUNNEL_END`] reports that the client closed its own, and
+/// [`NSGI_RESPONSE_BODY_ERROR`] aborts both. The host defers the switching response's
+/// `nsgi_free_response` call until this callback has reported a terminal status, so the application
+/// can go on reading after closing its own direction. The host may instead abandon the tunnel, and
+/// one the application stops reading is bounded by the host's idle timeout.
+///
+/// The host supplies whatever `connection` option the switch requires. A host switching an HTTP/1.1
+/// request whose `Expect: 100-continue` it has not answered transmits the 100 ahead of the 101. An
+/// HTTP/1.1 connection carries no request after a switch.
+pub type NsgiReadTunnel = unsafe extern "C" fn(
+    host_ctx: *mut c_void,
+    wake_ctx: *mut c_void,
+    wake: Option<NsgiWake>,
+    out_chunk: *mut *const u8,
+    out_chunk_len: *mut usize,
+) -> i32;
+
 /// The host accepted the interim response and transmits it ahead of the final response.
 pub const NSGI_INFORM_OK: i32 = 0;
 /// The host declined the interim response and transmits nothing for it.
@@ -261,8 +343,9 @@ pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
 /// passed back unchanged. `headers` is null when `headers_len` is 0; the host leaves out any
 /// `content-length` it carries.
 ///
-/// Returns one of the `NSGI_INFORM_*` statuses. A host treats an interim response breaking the
-/// [field validity rule](crate#field-validity) as [`NSGI_INFORM_ERROR_INVALID`]. A call made once
+/// Returns one of the `NSGI_INFORM_*` statuses. A host treats a 101, which only a final response
+/// carries to switch to a tunnel (see [`NsgiReadTunnel`]), and an interim response breaking the
+/// [field validity rule](crate#field-validity), as [`NSGI_INFORM_ERROR_INVALID`]. A call made once
 /// the final response has reached the host, through the out-parameter or through
 /// [`NsgiRequest::respond`], reports [`NSGI_INFORM_ERROR_FINAL`].
 ///
@@ -339,6 +422,11 @@ pub struct NsgiRequest {
     /// HTTP method bytes (e.g. `b"GET"`).
     pub method: *const u8,
     pub method_len: usize,
+    /// `:protocol` pseudo-header bytes as received (e.g. `b"websocket"`), carried by an extended
+    /// CONNECT request. Null when the request carries none. Only a host that has enabled extended
+    /// CONNECT, by sending `SETTINGS_ENABLE_CONNECT_PROTOCOL`, accepts such a request.
+    pub protocol: *const u8,
+    pub protocol_len: usize,
     /// Authority component bytes, as received and including any port. Taken from the request
     /// target when it is in absolute or authority form, otherwise from `:authority` or `Host`.
     /// Never carries the deprecated userinfo subcomponent; a host rejects such a request. Null
@@ -378,6 +466,9 @@ pub struct NsgiRequest {
     /// Request trailers delivery, receiving `host_ctx` unchanged. The host supplies it for every
     /// request, including one that carries no trailer section.
     pub read_trailers: NsgiReadRequestTrailers,
+    /// Tunnel delivery, receiving `host_ctx` unchanged. The host supplies it for every request,
+    /// including one that cannot switch to a tunnel.
+    pub read_tunnel: NsgiReadTunnel,
     /// Interim response delivery, receiving `host_ctx` unchanged. The host supplies it for every
     /// request.
     pub inform: NsgiInform,
@@ -485,7 +576,8 @@ pub type NsgiReadResponseTrailers = unsafe extern "C" fn(
 /// An HTTP response constructed by the application and passed to the host.
 ///
 /// A host answers 500 rather than transmitting a response whose fields break the [field validity
-/// rule](crate#field-validity).
+/// rule](crate#field-validity), or a 101 that does not switch the exchange to a tunnel as
+/// [`NsgiReadTunnel`] describes.
 ///
 /// # Ownership
 /// The application owns all memory reachable through it or written by its callbacks, and the host
@@ -507,14 +599,17 @@ pub struct NsgiResponse {
     /// A response to HEAD, and one whose status is 204 or 304, carries no content: the host
     /// transmits none of the body and need not read it. A response to HEAD, or a 304, may still
     /// declare the length its content would have had in a response to the same request made with
-    /// GET. The host leaves out any `content-length` a 204, or a 2xx response to CONNECT, carries.
+    /// GET. The host leaves out any `content-length` a 101, a 204, or a 2xx response to CONNECT,
+    /// carries.
     pub headers: *const NsgiHeader,
     pub headers_len: usize,
     /// Opaque application context pointer, possibly null. The host does not dereference or free
     /// this.
     pub app_ctx: *mut c_void,
     /// Response body delivery, receiving `app_ctx` unchanged. The application supplies it for
-    /// every response, including one that carries no body.
+    /// every response, including one that carries no body. For a response switching the exchange
+    /// to a tunnel, it supplies the bytes the host sends through the tunnel after the header
+    /// section (see [`NsgiReadTunnel`]).
     pub read_body: NsgiReadResponseBody,
     /// Response trailers delivery, receiving `app_ctx` unchanged. `None` when the application
     /// sends no trailer section.
