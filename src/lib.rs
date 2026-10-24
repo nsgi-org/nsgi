@@ -169,8 +169,9 @@ pub const NSGI_REQUEST_BODY_END: i32 = 1;
 pub const NSGI_REQUEST_BODY_AGAIN: i32 = 2;
 /// The connection ended before the body was complete.
 pub const NSGI_REQUEST_BODY_ERROR_TERMINATED: i32 = -1;
-/// The body framing was invalid, such as a malformed chunked encoding.
-pub const NSGI_REQUEST_BODY_ERROR_PROTOCOL: i32 = -2;
+/// The body was malformed, such as by an invalid chunked encoding or a trailer section breaking the
+/// [field validity rule](crate#field-validity).
+pub const NSGI_REQUEST_BODY_ERROR_MALFORMED: i32 = -2;
 /// The body reached a limit the host enforces.
 pub const NSGI_REQUEST_BODY_ERROR_TOO_LARGE: i32 = -3;
 /// The host's read timeout fired before the next chunk arrived.
@@ -251,7 +252,7 @@ pub const NSGI_REQUEST_TRAILERS_ERROR_INCOMPLETE: i32 = -1;
 ///
 /// Returns one of the `NSGI_REQUEST_TRAILERS_*` statuses. A host that received a trailer section
 /// breaking the [field validity rule](crate#field-validity) reports
-/// [`NSGI_REQUEST_BODY_ERROR_PROTOCOL`] from [`NsgiRequest::read_body`].
+/// [`NSGI_REQUEST_BODY_ERROR_MALFORMED`] from [`NsgiRequest::read_body`].
 pub type NsgiReadRequestTrailers = unsafe extern "C" fn(
     host_ctx: *mut c_void,
     out_trailers: *mut *const NsgiHeader,
@@ -351,7 +352,7 @@ pub const NSGI_INFORM_DECLINED: i32 = 1;
 /// The interim response is invalid, and the host transmits nothing for it.
 pub const NSGI_INFORM_ERROR_INVALID: i32 = -1;
 /// The final response has already reached the host.
-pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
+pub const NSGI_INFORM_ERROR_RESPONDED: i32 = -2;
 
 /// The canonical type signature of the host's interim response callback.
 ///
@@ -364,7 +365,7 @@ pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
 /// [field validity rule](crate#field-validity) or carrying a header that governs the connection, as
 /// [`NsgiResponse::headers`] lists them, as [`NSGI_INFORM_ERROR_INVALID`]. A call made once the
 /// final response has reached the host, through the out-parameter or through
-/// [`NsgiRequest::respond`], reports [`NSGI_INFORM_ERROR_FINAL`].
+/// [`NsgiRequest::respond`], reports [`NSGI_INFORM_ERROR_RESPONDED`].
 ///
 /// # Lifetimes
 /// The pointers address storage the application owns, borrowed for the duration of the call; the
