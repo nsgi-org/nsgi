@@ -93,6 +93,12 @@ pub struct NsgiAddr {
 /// bytes among `` !#$%&'*+-.^_`|~ ``. A host treats a name breaking this rule as whatever carries
 /// it treats a field breaking the [field validity rule](crate#field-validity).
 ///
+/// # Header order
+/// An array of headers carries one header per entry, in message order. A host delivers each header
+/// it received as an entry of its own and transmits each entry it is supplied as a header of its
+/// own, combining none that share a name, except that it joins the `cookie` headers of an HTTP/2 or
+/// HTTP/3 request into one, separated by `; `, as RFC 9113 and RFC 9114 require.
+///
 /// # Ownership
 /// Received from the host, these fields are borrowed, and the application does not free them.
 /// Supplied by the application, they are the application's own; the host never interprets or frees
@@ -125,8 +131,12 @@ pub const NSGI_VAR_ERROR: i32 = -1;
 ///
 /// `host_ctx` is [`NsgiRequest::host_ctx`] passed back unchanged. On [`NSGI_VAR_OK`] the host
 /// writes a pointer and length borrowed for the duration of the `nsgi_handle` call, or, for a call
-/// made after that return, until the next `get_var` call for the same request; on any other status
-/// the out-parameters are left untouched.
+/// made after that return, until the next `get_var` call for the same request and never beyond the
+/// return of the request's last `nsgi_free_response` call; on any other status the out-parameters
+/// are left untouched.
+///
+/// The application may call it after handing over the response, on the window
+/// [`NsgiReadRequestBody`] describes.
 ///
 /// Returns one of the `NSGI_VAR_*` statuses. A host that cannot report a value meeting the [field
 /// validity rule](crate#field-validity) returns [`NSGI_VAR_ERROR`].
@@ -319,6 +329,10 @@ pub const NSGI_TUNNEL_ERROR_TIMEOUT: i32 = -3;
 /// can go on reading after closing its own direction. The host may instead abandon the tunnel, and
 /// one the application stops reading is bounded by the host's idle timeout.
 ///
+/// A host passes a CONNECT request to the application only when configured to, and otherwise
+/// answers 501, so that an application answering every request with a 2xx does not switch one by
+/// accident.
+///
 /// The host supplies whatever `connection` option the switch requires. A host switching an HTTP/1.1
 /// request whose `Expect: 100-continue` it has not answered transmits the 100 ahead of the 101. An
 /// HTTP/1.1 connection carries no request after a switch.
@@ -347,8 +361,9 @@ pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
 ///
 /// Returns one of the `NSGI_INFORM_*` statuses. A host treats a 101, which only a final response
 /// carries to switch to a tunnel (see [`NsgiReadTunnel`]), and an interim response breaking the
-/// [field validity rule](crate#field-validity), as [`NSGI_INFORM_ERROR_INVALID`]. A call made once
-/// the final response has reached the host, through the out-parameter or through
+/// [field validity rule](crate#field-validity) or carrying a header that governs the connection, as
+/// [`NsgiResponse::headers`] lists them, as [`NSGI_INFORM_ERROR_INVALID`]. A call made once the
+/// final response has reached the host, through the out-parameter or through
 /// [`NsgiRequest::respond`], reports [`NSGI_INFORM_ERROR_FINAL`].
 ///
 /// # Lifetimes
@@ -357,7 +372,8 @@ pub const NSGI_INFORM_ERROR_FINAL: i32 = -2;
 ///
 /// # Ordering
 /// The call may come from any thread, including one the host did not create, and from within
-/// `nsgi_handle` on the thread running it.
+/// `nsgi_handle` on the thread running it. It comes no later than the return of the request's last
+/// `nsgi_free_response` call.
 ///
 /// # Host obligations
 /// The host transmits the interim responses it accepts in the order of the calls. It may decline
@@ -594,7 +610,11 @@ pub struct NsgiResponse {
     /// HTTP status code of the final response (e.g. `200`, `404`).
     pub status: u16,
     /// Response headers, carrying a valid `content-length` when the application knows the body's
-    /// length and never `transfer-encoding`. Null when `headers_len` is 0.
+    /// length. Null when `headers_len` is 0.
+    ///
+    /// They carry no header that governs the connection rather than the message: `connection`,
+    /// `keep-alive`, `proxy-connection`, `te`, `transfer-encoding`, or, other than on a 101,
+    /// `upgrade`. The host supplies whatever of these its connection needs.
     ///
     /// A transfer coding frames the connection the host terminated, and chunk boundaries are not
     /// message framing. A host transmits a declared length as given, other than one it leaves out
