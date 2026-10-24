@@ -169,8 +169,7 @@ pub const NSGI_REQUEST_BODY_END: i32 = 1;
 pub const NSGI_REQUEST_BODY_AGAIN: i32 = 2;
 /// The connection ended before the body was complete.
 pub const NSGI_REQUEST_BODY_ERROR_TERMINATED: i32 = -1;
-/// The body was malformed, such as by an invalid chunked encoding or a trailer section breaking the
-/// [field validity rule](crate#field-validity).
+/// The body or its trailer section was malformed.
 pub const NSGI_REQUEST_BODY_ERROR_MALFORMED: i32 = -2;
 /// The body reached a limit the host enforces.
 pub const NSGI_REQUEST_BODY_ERROR_TOO_LARGE: i32 = -3;
