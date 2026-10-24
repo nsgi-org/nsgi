@@ -89,7 +89,9 @@ pub struct NsgiAddr {
 /// every other byte alone; values are unaffected. A host folds any uppercase name it receives
 /// before transmitting.
 ///
-/// Beyond case, a name carries no byte in `0x00..=0x20` or `0x7F..=0xFF`, and no colon.
+/// Beyond case, a name is a token as RFC 9110 defines it: one or more ASCII digits, letters, or
+/// bytes among `` !#$%&'*+-.^_`|~ ``. A host treats a name breaking this rule as whatever carries
+/// it treats a field breaking the [field validity rule](crate#field-validity).
 ///
 /// # Ownership
 /// Received from the host, these fields are borrowed, and the application does not free them.
@@ -428,16 +430,20 @@ pub struct NsgiRequest {
     pub protocol: *const u8,
     pub protocol_len: usize,
     /// Authority component bytes, as received and including any port. Taken from the request
-    /// target when it is in absolute or authority form, otherwise from `:authority` or `Host`.
-    /// Never carries the deprecated userinfo subcomponent; a host rejects such a request. Null
-    /// when the request conveys no authority.
+    /// target when it is in absolute or authority form, otherwise from `:authority` or `Host`. A
+    /// host rejects a request whose authority is not of the form `host [ ":" port ]` that RFC 3986
+    /// defines, including one carrying the deprecated userinfo subcomponent. Null when the request
+    /// conveys no authority.
     pub authority: *const u8,
     pub authority_len: usize,
-    /// Path component bytes as received (e.g. `b"/api/v1"`); a host does not percent-decode.
+    /// Path component bytes as received (e.g. `b"/api/v1"`); a host does not percent-decode or
+    /// remove dot segments. An absolute-form target with an empty path has a path of `b"/"`, other
+    /// than as below.
     ///
-    /// A server-wide OPTIONS request, whose target is the asterisk alone, has a path of `b"*"`. A
-    /// CONNECT request whose target is the authority alone, carrying no `:path`, has a null path
-    /// and a `path_len` of 0; one carrying a `:path`, as with `:protocol`, has that path.
+    /// A server-wide OPTIONS request, whose target is the asterisk alone or an absolute form with
+    /// an empty path, has a path of `b"*"`. A CONNECT request whose target is the authority alone,
+    /// carrying no `:path`, has a null path and a `path_len` of 0; one carrying a `:path`, as with
+    /// `:protocol`, has that path.
     pub path: *const u8,
     pub path_len: usize,
     /// Query component bytes as received; a host does not percent-decode. The `?` delimiter is
@@ -576,8 +582,8 @@ pub type NsgiReadResponseTrailers = unsafe extern "C" fn(
 /// An HTTP response constructed by the application and passed to the host.
 ///
 /// A host answers 500 rather than transmitting a response whose fields break the [field validity
-/// rule](crate#field-validity), or a 101 that does not switch the exchange to a tunnel as
-/// [`NsgiReadTunnel`] describes.
+/// rule](crate#field-validity), whose headers break the rules [`NsgiResponse::headers`] states, or
+/// a 101 that does not switch the exchange to a tunnel as [`NsgiReadTunnel`] describes.
 ///
 /// # Ownership
 /// The application owns all memory reachable through it or written by its callbacks, and the host
@@ -587,8 +593,8 @@ pub type NsgiReadResponseTrailers = unsafe extern "C" fn(
 pub struct NsgiResponse {
     /// HTTP status code of the final response (e.g. `200`, `404`).
     pub status: u16,
-    /// Response headers, carrying `content-length` when the application knows the body's length
-    /// and never `transfer-encoding`. Null when `headers_len` is 0.
+    /// Response headers, carrying a valid `content-length` when the application knows the body's
+    /// length and never `transfer-encoding`. Null when `headers_len` is 0.
     ///
     /// A transfer coding frames the connection the host terminated, and chunk boundaries are not
     /// message framing. A host transmits a declared length as given, other than one it leaves out
