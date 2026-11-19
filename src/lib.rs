@@ -275,10 +275,10 @@ pub const NSGI_TUNNEL_ERROR_TIMEOUT: i32 = -3;
 /// The canonical type signature of the host's tunnel read callback.
 ///
 /// A final response can switch the exchange to a tunnel: a bidirectional byte stream that is no
-/// longer HTTP, such as a WebSocket. A 101 carrying `upgrade`, naming the protocol switched to,
-/// switches an HTTP/1.1 request carrying `upgrade`; HTTP/2 and HTTP/3 have no 101. A 2xx switches a
-/// CONNECT request on any version, including an extended CONNECT request, which carries
-/// [`NsgiRequest::protocol`].
+/// longer HTTP, such as a WebSocket. A 101 carrying `upgrade`, naming the protocol switched to from
+/// those the request listed, switches an HTTP/1.1 request carrying `upgrade`; HTTP/2 and HTTP/3
+/// have no 101. A 2xx switches a CONNECT request on any version, including an extended CONNECT
+/// request, which carries [`NsgiRequest::protocol`].
 ///
 /// Delivers the bytes the client sends through the tunnel after the request message, as chunks
 /// borrowed from host memory, one per call, in the order the bytes arrived. The switching
