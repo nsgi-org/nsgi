@@ -446,9 +446,9 @@ pub struct NsgiRequest {
     /// than as below.
     ///
     /// A server-wide OPTIONS request, whose target is the asterisk alone or an absolute form with
-    /// an empty path, has a path of `b"*"`. A CONNECT request whose target is the authority alone,
-    /// carrying no `:path`, has a null path and a `path_len` of 0; one carrying a `:path`, as with
-    /// `:protocol`, has that path.
+    /// an empty path and no query, has a path of `b"*"`. A CONNECT request whose target is the
+    /// authority alone, carrying no `:path`, has a null path and a `path_len` of 0; one carrying a
+    /// `:path`, as with `:protocol`, has that path.
     pub path: *const u8,
     pub path_len: usize,
     /// Query component bytes as received; a host does not percent-decode. The `?` delimiter is
