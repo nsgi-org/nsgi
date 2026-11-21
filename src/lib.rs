@@ -89,9 +89,7 @@ pub struct NsgiAddr {
 /// every other byte alone; values are unaffected. A host folds any uppercase name it receives
 /// before transmitting.
 ///
-/// Beyond case, a name is a token as RFC 9110 defines it: one or more ASCII digits, letters, or
-/// bytes among `` !#$%&'*+-.^_`|~ ``. A host treats a name breaking this rule as whatever carries
-/// it treats a field breaking the [field validity rule](crate#field-validity).
+/// Beyond case, a name is a token as RFC 9110 defines it: one or more ASCII digits, letters, or bytes among `` !#$%&'*+-.^_`|~ ``. A host treats a name breaking this rule as whatever carries it treats a field breaking the [field validity rule](crate#field-validity).
 ///
 /// # Header order
 /// An array of headers carries one header per entry, in message order. A host delivers each header
@@ -138,8 +136,7 @@ pub const NSGI_VAR_ERROR: i32 = -1;
 /// The application may call it after handing over the response, on the window
 /// [`NsgiReadRequestBody`] describes.
 ///
-/// Returns one of the `NSGI_VAR_*` statuses. A host that cannot report a value meeting the [field
-/// validity rule](crate#field-validity) returns [`NSGI_VAR_ERROR`].
+/// Returns one of the `NSGI_VAR_*` statuses. A host that cannot report a value meeting the [field validity rule](crate#field-validity) returns [`NSGI_VAR_ERROR`].
 pub type NsgiGetVar = unsafe extern "C" fn(
     host_ctx: *mut c_void,
     name: *const u8,
@@ -249,9 +246,7 @@ pub const NSGI_REQUEST_TRAILERS_ERROR_INCOMPLETE: i32 = -1;
 /// The application may call it after handing over the response, on the window
 /// [`NsgiReadRequestBody`] describes.
 ///
-/// Returns one of the `NSGI_REQUEST_TRAILERS_*` statuses. A host that received a trailer section
-/// breaking the [field validity rule](crate#field-validity) reports
-/// [`NSGI_REQUEST_BODY_ERROR_MALFORMED`] from [`NsgiRequest::read_body`].
+/// Returns one of the `NSGI_REQUEST_TRAILERS_*` statuses. A host that received a trailer section breaking the [field validity rule](crate#field-validity) reports [`NSGI_REQUEST_BODY_ERROR_MALFORMED`] from [`NsgiRequest::read_body`].
 pub type NsgiReadRequestTrailers = unsafe extern "C" fn(
     host_ctx: *mut c_void,
     out_trailers: *mut *const NsgiHeader,
@@ -359,12 +354,7 @@ pub const NSGI_INFORM_ERROR_RESPONDED: i32 = -2;
 /// passed back unchanged. `headers` is null when `headers_len` is 0; the host leaves out any
 /// `content-length` it carries.
 ///
-/// Returns one of the `NSGI_INFORM_*` statuses. A host treats a 101, which only a final response
-/// carries to switch to a tunnel (see [`NsgiReadTunnel`]), and an interim response breaking the
-/// [field validity rule](crate#field-validity) or carrying a header that governs the connection, as
-/// [`NsgiResponse::headers`] lists them, as [`NSGI_INFORM_ERROR_INVALID`]. A call made once the
-/// final response has reached the host, through the out-parameter or through
-/// [`NsgiRequest::respond`], reports [`NSGI_INFORM_ERROR_RESPONDED`].
+/// Returns one of the `NSGI_INFORM_*` statuses. A host treats a 101, which only a final response carries to switch to a tunnel (see [`NsgiReadTunnel`]), and an interim response breaking the [field validity rule](crate#field-validity) or carrying a header that governs the connection, as [`NsgiResponse::headers`] lists them, as [`NSGI_INFORM_ERROR_INVALID`]. A call made once the final response has reached the host, through the out-parameter or through [`NsgiRequest::respond`], reports [`NSGI_INFORM_ERROR_RESPONDED`].
 ///
 /// # Lifetimes
 /// The pointers address storage the application owns, borrowed for the duration of the call; the
@@ -412,8 +402,7 @@ pub type NsgiRespond = unsafe extern "C" fn(host_ctx: *mut c_void, res: *const N
 
 /// An HTTP request constructed by the host and passed to the application.
 ///
-/// A host rejects a request whose fields break the [field validity rule](crate#field-validity),
-/// with 400 unless a more suitable status applies.
+/// A host rejects a request whose fields break the [field validity rule](crate#field-validity), with 400 unless a more suitable status applies.
 ///
 /// # Ownership
 /// Every pointer field is borrowed from the host for the duration of the `nsgi_handle` call. The
@@ -578,10 +567,7 @@ pub const NSGI_RESPONSE_TRAILERS_ERROR: i32 = -1;
 /// application writes the array pointer, null when the length is 0, and length; on any other status
 /// the out-parameters are left untouched.
 ///
-/// Returns one of the `NSGI_RESPONSE_TRAILERS_*` statuses. A host treats a trailer section breaking
-/// the [field validity rule](crate#field-validity) as [`NSGI_RESPONSE_TRAILERS_ERROR`]. The
-/// application answers without waiting, so it reports [`NSGI_RESPONSE_BODY_END`] only once the
-/// trailer section is ready.
+/// Returns one of the `NSGI_RESPONSE_TRAILERS_*` statuses. A host treats a trailer section breaking the [field validity rule](crate#field-validity) as [`NSGI_RESPONSE_TRAILERS_ERROR`]. The application answers without waiting, so it reports [`NSGI_RESPONSE_BODY_END`] only once the trailer section is ready.
 ///
 /// The host calls it at most once, and only when the message framing can carry a trailer section.
 ///
@@ -597,9 +583,7 @@ pub type NsgiReadResponseTrailers = unsafe extern "C" fn(
 
 /// An HTTP response constructed by the application and passed to the host.
 ///
-/// A host answers 500 rather than transmitting a response whose fields break the [field validity
-/// rule](crate#field-validity), whose headers break the rules [`NsgiResponse::headers`] states, or
-/// a 101 that does not switch the exchange to a tunnel as [`NsgiReadTunnel`] describes.
+/// A host answers 500 rather than transmitting a response whose fields break the [field validity rule](crate#field-validity), whose headers break the rules [`NsgiResponse::headers`] states, or a 101 that does not switch the exchange to a tunnel as [`NsgiReadTunnel`] describes.
 ///
 /// # Ownership
 /// The application owns all memory reachable through it or written by its callbacks, and the host
