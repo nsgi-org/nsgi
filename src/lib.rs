@@ -426,7 +426,7 @@ pub struct NsgiRequest {
     /// `nsgi_open_connection` for the connection the request arrived on. The host does not
     /// dereference or free this.
     pub connection_ctx: *mut c_void,
-    /// HTTP method bytes (e.g. `b"GET"`).
+    /// HTTP method bytes (e.g. `b"GET"`). The method is a token as RFC 9110 defines it.
     pub method: *const u8,
     pub method_len: usize,
     /// `:protocol` pseudo-header bytes as received (e.g. `b"websocket"`), carried by an extended
