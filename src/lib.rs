@@ -206,8 +206,7 @@ pub const NSGI_REQUEST_BODY_ERROR_TIMEOUT: i32 = -4;
 /// # Ordering
 /// The `wake` call may come from any thread, including one the application did not create, and may
 /// precede the return reporting [`NSGI_REQUEST_BODY_AGAIN`]. It comes no later than the host
-/// reclaiming the request after [`NsgiCancel`] or calling `nsgi_close_connection` for its
-/// connection.
+/// reclaiming the request after [`NsgiCancel`] or calling the request's last `nsgi_free_response`.
 ///
 /// The application makes its next call only once `wake` has been called and the call reporting
 /// [`NSGI_REQUEST_BODY_AGAIN`] has returned, in whichever order. It orders that call after the
@@ -310,7 +309,7 @@ pub const NSGI_TUNNEL_ERROR_TIMEOUT: i32 = -3;
 /// # Ordering
 /// The `wake` call may come from any thread, including one the application did not create, and may
 /// precede the return reporting [`NSGI_TUNNEL_AGAIN`]. It comes no later than the host reclaiming
-/// the request after [`NsgiCancel`] or calling `nsgi_close_connection` for its connection.
+/// the request after [`NsgiCancel`] or calling the request's last `nsgi_free_response`.
 ///
 /// The application makes its next call only once `wake` has been called and the call reporting
 /// [`NSGI_TUNNEL_AGAIN`] has returned, in whichever order. It orders that call after the `wake`
@@ -735,7 +734,8 @@ pub type NsgiApp = unsafe extern "C" fn(
 ///
 /// # Ordering
 /// The call comes after the last call to a callback the response carries and never concurrently
-/// with one, whether or not the response reached completion.
+/// with one, whether or not the response reached completion. The request's last call begins only
+/// once no call made on the window [`NsgiReadRequestBody`] describes is in progress.
 pub type NsgiFreeResponse = unsafe extern "C" fn(*const NsgiResponse);
 
 /// The canonical type signature of the application's connection close function.
