@@ -321,7 +321,7 @@ pub const NSGI_TUNNEL_ERROR_TIMEOUT: i32 = -3;
 /// direction, [`NSGI_TUNNEL_END`] reports that the client closed its own, and
 /// [`NSGI_RESPONSE_BODY_ERROR`] aborts both. The host defers the switching response's
 /// `nsgi_free_response` call until this callback has reported a terminal status, so the application
-/// can go on reading after closing its own direction. The host may instead abandon the tunnel, and
+/// can go on reading after closing its own direction. The host may instead abort the tunnel, and
 /// one the application stops reading is bounded by the host's idle timeout.
 ///
 /// A host passes a CONNECT request to the application only when configured to, and otherwise
